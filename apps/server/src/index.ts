@@ -6,6 +6,7 @@ import logger from './utils/logger';
 import { authRequired, superadminOnly } from './middleware/auth';
 import { rateLimiter } from './middleware/rateLimit';
 import { errorHandler } from './middleware/errorHandler';
+import { requestIdMiddleware, requestTimingMiddleware } from './middleware/requestLogging';
 
 // Import routes
 import authRoutes from './routes/auth';
@@ -61,11 +62,30 @@ import healthRoutes from './routes/health.routes';
 export function createApp() {
   const app = express();
   const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
+  const slowQueryThresholdMs = Number(process.env.SLOW_QUERY_THRESHOLD_MS || 200);
 
   // Middleware
   app.use(cors());
   app.use(express.json());
   app.use(rateLimiter);
+  app.use(requestIdMiddleware);
+  app.use(requestTimingMiddleware);
+
+  if (!isTestEnv && slowQueryThresholdMs > 0) {
+    prisma.$use(async (params, next) => {
+      const start = Date.now();
+      const result = await next(params);
+      const durationMs = Date.now() - start;
+      if (durationMs >= slowQueryThresholdMs) {
+        logger.warn('slow_query', {
+          model: params.model ?? 'raw',
+          action: params.action,
+          duration_ms: durationMs,
+        });
+      }
+      return result;
+    });
+  }
 
   if (isTestEnv) {
     app.use((req, _res, next) => {

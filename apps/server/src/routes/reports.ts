@@ -9,7 +9,15 @@ import stream from 'stream';
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
 import { z } from 'zod';
-import { studentsReportSchema, enrollmentsReportSchema, attendanceReportSchema, financeReportSchema, assessmentsReportSchema } from '../schemas/reportsSchema';
+import {
+  studentsReportSchema,
+  enrollmentsReportSchema,
+  attendanceReportSchema,
+  financeReportSchema,
+  assessmentsReportSchema,
+  financeAdvancedReportSchema,
+  commissionSummarySchema,
+} from '../schemas/reportsSchema';
 
 const router = Router();
 
@@ -124,6 +132,8 @@ router.get('/students', authRequired, async (req: AuthRequest, res: Response) =>
     const validatedQuery = studentsReportSchema.parse(req.query);
     
     const { orgUnitId, status, fromDate, toDate } = validatedQuery;
+    const limit = validatedQuery.limit ?? 500;
+    const offset = validatedQuery.offset ?? 0;
     
     // Check if user has appropriate role
     if (!req.user || (!isSuperadmin(req.user.role) && 
@@ -210,7 +220,8 @@ router.get('/students', authRequired, async (req: AuthRequest, res: Response) =>
       paramIndex++;
     }
 
-    query += ` ORDER BY s."createdAt" DESC`;
+    query += ` ORDER BY s."createdAt" DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    queryParams.push(limit, offset);
 
     const students = await prisma.$queryRawUnsafe<StudentRow[]>(query, ...queryParams);
 
@@ -247,6 +258,8 @@ router.get('/enrollments', authRequired, async (req: AuthRequest, res: Response)
     const validatedQuery = enrollmentsReportSchema.parse(req.query);
     
     const { orgUnitId, status, courseCode, fromDate, toDate } = validatedQuery;
+    const limit = validatedQuery.limit ?? 500;
+    const offset = validatedQuery.offset ?? 0;
     
     // Check if user has appropriate role
     if (!req.user || (!isSuperadmin(req.user.role) && 
@@ -344,7 +357,8 @@ router.get('/enrollments', authRequired, async (req: AuthRequest, res: Response)
       paramIndex++;
     }
 
-    query += ` ORDER BY e."startDate" DESC`;
+    query += ` ORDER BY e."startDate" DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    queryParams.push(limit, offset);
 
     const enrollments = await prisma.$queryRawUnsafe<EnrollmentRow[]>(query, ...queryParams);
 
@@ -382,6 +396,8 @@ router.get('/attendance', authRequired, async (req: AuthRequest, res: Response) 
     const validatedQuery = attendanceReportSchema.parse(req.query);
     
     const { orgUnitId, date, courseCode } = validatedQuery;
+    const limit = validatedQuery.limit ?? 500;
+    const offset = validatedQuery.offset ?? 0;
     
     // Check if user has appropriate role
     if (!req.user || (!isSuperadmin(req.user.role) && 
@@ -458,7 +474,8 @@ router.get('/attendance', authRequired, async (req: AuthRequest, res: Response) 
       paramIndex++;
     }
 
-    query += ` ORDER BY sa."classDate" DESC, s."firstName", s."lastName"`;
+    query += ` ORDER BY sa."classDate" DESC, s."firstName", s."lastName" LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    queryParams.push(limit, offset);
 
     const attendance = await prisma.$queryRawUnsafe<AttendanceRow[]>(query, ...queryParams);
 
@@ -607,6 +624,560 @@ router.get('/finance', authRequired, async (req: AuthRequest, res: Response) => 
       return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
     }
     console.error('Error fetching finance report:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/reports/finance/advanced
+router.get('/finance/advanced', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    const validatedQuery = financeAdvancedReportSchema.parse(req.query);
+    const { orgUnitId, fromDate, toDate, courseCode } = validatedQuery;
+
+    if (!req.user || (!isSuperadmin(req.user.role) &&
+        !isBusinessPartner(req.user.role) &&
+        !isFranchise(req.user.role) &&
+        !isCenterManager(req.user.role) &&
+        !isAdmissions(req.user.role))) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
+    }
+
+    if (fromDate && !isValidDate(fromDate as string)) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid fromDate format. Use YYYY-MM-DD.');
+    }
+
+    if (toDate && !isValidDate(toDate as string)) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid toDate format. Use YYYY-MM-DD.');
+    }
+
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+
+    let targetOrgUnits = allowedOrgUnits;
+    if (orgUnitId) {
+      const orgId = parseInt(orgUnitId as string);
+      if (isNaN(orgId)) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Invalid orgUnitId.');
+      }
+
+      if (!isSuperadmin(req.user.role)) {
+        if (!allowedOrgUnits.includes(orgId)) {
+          return fail(res, 403, 'ACCESS_DENIED', 'Access denied to specified org unit.');
+        }
+      }
+
+      targetOrgUnits = [orgId];
+    }
+
+    const courseRevenueQuery = `
+      SELECT 
+        c."code" as "courseCode",
+        c."name" as "courseName",
+        COUNT(sfr."id") as "totalCount",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PAID' THEN 1 ELSE 0 END), 0) as "paidCount",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PENDING' THEN 1 ELSE 0 END), 0) as "pendingCount",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PARTIAL' THEN 1 ELSE 0 END), 0) as "partialCount",
+        COALESCE(SUM(sfr."amount"), 0) as "totalAmount",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PAID' THEN sfr."amount" ELSE 0 END), 0) as "totalPaid",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PENDING' THEN sfr."amount" ELSE 0 END), 0) as "totalPending",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PARTIAL' THEN sfr."amount" ELSE 0 END), 0) as "totalPartial"
+      FROM "StudentFeeRecord" sfr
+      JOIN "AbacusEnrollment" e ON sfr."enrollmentId" = e."id"
+      JOIN "AbacusCourse" c ON e."courseId" = c."id"
+      WHERE sfr."orgUnitId" = ANY($1)
+    `;
+
+    const courseParams: unknown[] = [targetOrgUnits];
+    let courseQuery = courseRevenueQuery;
+
+    if (courseCode) {
+      courseQuery += ` AND c."code" = $${courseParams.length + 1}`;
+      courseParams.push(courseCode);
+    }
+
+    if (fromDate) {
+      courseQuery += ` AND sfr."createdAt" >= $${courseParams.length + 1}`;
+      courseParams.push(new Date(fromDate as string));
+    }
+
+    if (toDate) {
+      courseQuery += ` AND sfr."createdAt" <= $${courseParams.length + 1}`;
+      courseParams.push(new Date(toDate as string));
+    }
+
+    courseQuery += ` GROUP BY c."id", c."code", c."name" ORDER BY c."code"`;
+
+    const courseRevenue: any = await prisma.$queryRawUnsafe(courseQuery, ...courseParams);
+
+    const orgTotalsQuery = `
+      SELECT 
+        sfr."orgUnitId" as "orgUnitId",
+        COUNT(sfr."id") as "totalCount",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PAID' THEN 1 ELSE 0 END), 0) as "paidCount",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PENDING' THEN 1 ELSE 0 END), 0) as "pendingCount",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PARTIAL' THEN 1 ELSE 0 END), 0) as "partialCount",
+        COALESCE(SUM(sfr."amount"), 0) as "totalAmount",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PAID' THEN sfr."amount" ELSE 0 END), 0) as "totalPaid",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PENDING' THEN sfr."amount" ELSE 0 END), 0) as "totalPending",
+        COALESCE(SUM(CASE WHEN sfr."status" = 'PARTIAL' THEN sfr."amount" ELSE 0 END), 0) as "totalPartial"
+      FROM "StudentFeeRecord" sfr
+      WHERE sfr."orgUnitId" = ANY($1)
+    `;
+
+    const totalsParams: unknown[] = [targetOrgUnits];
+    let totalsQuery = orgTotalsQuery;
+
+    if (fromDate) {
+      totalsQuery += ` AND sfr."createdAt" >= $${totalsParams.length + 1}`;
+      totalsParams.push(new Date(fromDate as string));
+    }
+
+    if (toDate) {
+      totalsQuery += ` AND sfr."createdAt" <= $${totalsParams.length + 1}`;
+      totalsParams.push(new Date(toDate as string));
+    }
+
+    totalsQuery += ` GROUP BY sfr."orgUnitId"`;
+
+    const orgTotalsRaw: any = await prisma.$queryRawUnsafe(totalsQuery, ...totalsParams);
+
+    const orgUnits = await prisma.orgUnit.findMany({
+      where: { id: { in: targetOrgUnits } },
+      select: { id: true, code: true, name: true, type: true, parentId: true },
+    });
+
+    const orgById = new Map(orgUnits.map((o) => [o.id, o]));
+    const childrenByParent = new Map<number | null, number[]>();
+    orgUnits.forEach((org) => {
+      const list = childrenByParent.get(org.parentId ?? null) ?? [];
+      list.push(org.id);
+      childrenByParent.set(org.parentId ?? null, list);
+    });
+
+    const totalsByOrg = new Map<
+      number,
+      {
+        totalCount: number;
+        paidCount: number;
+        pendingCount: number;
+        partialCount: number;
+        totalAmount: number;
+        totalPaid: number;
+        totalPending: number;
+        totalPartial: number;
+      }
+    >();
+    orgUnits.forEach((org) => {
+      totalsByOrg.set(org.id, {
+        totalCount: 0,
+        paidCount: 0,
+        pendingCount: 0,
+        partialCount: 0,
+        totalAmount: 0,
+        totalPaid: 0,
+        totalPending: 0,
+        totalPartial: 0,
+      });
+    });
+    orgTotalsRaw.forEach((row: any) => {
+      totalsByOrg.set(row.orgunitid, {
+        totalCount: row.totalcount ? parseInt(row.totalcount.toString()) : 0,
+        paidCount: row.paidcount ? parseInt(row.paidcount.toString()) : 0,
+        pendingCount: row.pendingcount ? parseInt(row.pendingcount.toString()) : 0,
+        partialCount: row.partialcount ? parseInt(row.partialcount.toString()) : 0,
+        totalAmount: row.totalamount ? parseInt(row.totalamount.toString()) : 0,
+        totalPaid: row.totalpaid ? parseInt(row.totalpaid.toString()) : 0,
+        totalPending: row.totalpending ? parseInt(row.totalpending.toString()) : 0,
+        totalPartial: row.totalpartial ? parseInt(row.totalpartial.toString()) : 0,
+      });
+    });
+
+    const computeDescendants = (orgId: number): number[] => {
+      const stack = [orgId];
+      const result: number[] = [];
+      while (stack.length > 0) {
+        const current = stack.pop() as number;
+        result.push(current);
+        const children = childrenByParent.get(current) ?? [];
+        children.forEach((child) => stack.push(child));
+      }
+      return result;
+    };
+
+    const sumForOrg = (orgId: number) => {
+      const descendants = computeDescendants(orgId);
+      const totals = {
+        totalCount: 0,
+        paidCount: 0,
+        pendingCount: 0,
+        partialCount: 0,
+        totalAmount: 0,
+        totalPaid: 0,
+        totalPending: 0,
+        totalPartial: 0,
+      };
+      descendants.forEach((id) => {
+        const org = orgById.get(id);
+        if (!org || org.type !== 'CENTER') return;
+        const row = totalsByOrg.get(id);
+        if (!row) return;
+        totals.totalCount += row.totalCount;
+        totals.paidCount += row.paidCount;
+        totals.pendingCount += row.pendingCount;
+        totals.partialCount += row.partialCount;
+        totals.totalAmount += row.totalAmount;
+        totals.totalPaid += row.totalPaid;
+        totals.totalPending += row.totalPending;
+        totals.totalPartial += row.totalPartial;
+      });
+      return totals;
+    };
+
+    const centers = orgUnits
+      .filter((org) => org.type === 'CENTER')
+      .map((org) => ({
+        orgUnitId: org.id,
+        code: org.code,
+        name: org.name,
+        ...totalsByOrg.get(org.id),
+      }));
+
+    const franchises = orgUnits
+      .filter((org) => org.type === 'FRANCHISE')
+      .map((org) => ({
+        orgUnitId: org.id,
+        code: org.code,
+        name: org.name,
+        ...sumForOrg(org.id),
+      }));
+
+    const businessPartners = orgUnits
+      .filter((org) => org.type === 'BUSINESS_PARTNER')
+      .map((org) => ({
+        orgUnitId: org.id,
+        code: org.code,
+        name: org.name,
+        ...sumForOrg(org.id),
+      }));
+
+    const totalBreakdown = centers.reduce(
+      (acc, row) => ({
+        totalCount: acc.totalCount + (row?.totalCount ?? 0),
+        paidCount: acc.paidCount + (row?.paidCount ?? 0),
+        pendingCount: acc.pendingCount + (row?.pendingCount ?? 0),
+        partialCount: acc.partialCount + (row?.partialCount ?? 0),
+        totalAmount: acc.totalAmount + (row?.totalAmount ?? 0),
+        totalPaid: acc.totalPaid + (row?.totalPaid ?? 0),
+        totalPending: acc.totalPending + (row?.totalPending ?? 0),
+        totalPartial: acc.totalPartial + (row?.totalPartial ?? 0),
+      }),
+      { totalCount: 0, paidCount: 0, pendingCount: 0, partialCount: 0, totalAmount: 0, totalPaid: 0, totalPending: 0, totalPartial: 0 }
+    );
+
+    await logAudit(req, {
+      action: 'REPORT_FINANCE_ADVANCED_VIEWED',
+      entityType: 'Report',
+      meta: {
+        reportType: 'finance-advanced',
+        filters: { orgUnitId, fromDate, toDate, courseCode },
+      },
+    });
+
+    ok(res, {
+      breakdown: totalBreakdown,
+      courseRevenue: courseRevenue.map((row: any) => ({
+        courseCode: row.coursecode,
+        courseName: row.coursename,
+        totalCount: row.totalcount ? parseInt(row.totalcount.toString()) : 0,
+        paidCount: row.paidcount ? parseInt(row.paidcount.toString()) : 0,
+        pendingCount: row.pendingcount ? parseInt(row.pendingcount.toString()) : 0,
+        partialCount: row.partialcount ? parseInt(row.partialcount.toString()) : 0,
+        totalAmount: row.totalamount ? parseInt(row.totalamount.toString()) : 0,
+        totalPaid: row.totalpaid ? parseInt(row.totalpaid.toString()) : 0,
+        totalPending: row.totalpending ? parseInt(row.totalpending.toString()) : 0,
+        totalPartial: row.totalpartial ? parseInt(row.totalpartial.toString()) : 0,
+        outstandingAmount: (row.totalpending ? parseInt(row.totalpending.toString()) : 0) + (row.totalpartial ? parseInt(row.totalpartial.toString()) : 0),
+        outstandingCount: (row.pendingcount ? parseInt(row.pendingcount.toString()) : 0) + (row.partialcount ? parseInt(row.partialcount.toString()) : 0),
+      })),
+      rollups: {
+        centers,
+        franchises,
+        businessPartners,
+      },
+      outstanding: {
+        totalAmount: totalBreakdown.totalPending + totalBreakdown.totalPartial,
+        totalCount: totalBreakdown.pendingCount + totalBreakdown.partialCount,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    console.error('Error fetching advanced finance report:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/reports/commissions/summary
+router.get('/commissions/summary', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    const validatedQuery = commissionSummarySchema.parse(req.query);
+    const { orgUnitId, fromDate, toDate, type, courseCode } = validatedQuery;
+
+    if (!req.user || (!isSuperadmin(req.user.role) &&
+        !isBusinessPartner(req.user.role) &&
+        !isFranchise(req.user.role) &&
+        !isCenterManager(req.user.role) &&
+        !isAdmissions(req.user.role))) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
+    }
+
+    if (fromDate && !isValidDate(fromDate as string)) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid fromDate format. Use YYYY-MM-DD.');
+    }
+
+    if (toDate && !isValidDate(toDate as string)) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid toDate format. Use YYYY-MM-DD.');
+    }
+
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+
+    let targetOrgUnits = allowedOrgUnits;
+    if (orgUnitId) {
+      const orgId = parseInt(orgUnitId as string);
+      if (isNaN(orgId)) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Invalid orgUnitId.');
+      }
+
+      if (!isSuperadmin(req.user.role)) {
+        if (!allowedOrgUnits.includes(orgId)) {
+          return fail(res, 403, 'ACCESS_DENIED', 'Access denied to specified org unit.');
+        }
+      }
+
+      targetOrgUnits = [orgId];
+    }
+
+    let query = `
+      SELECT 
+        cr."orgUnitId" as "orgUnitId",
+        cr."entityType" as "type",
+        cr."courseCode" as "courseCode",
+        ac."name" as "courseName",
+        COUNT(cr."id") as "count",
+        COALESCE(SUM(cr."amount"), 0) as "totalAmount"
+      FROM "CommissionRecord" cr
+      LEFT JOIN "AbacusCourse" ac ON ac."code" = cr."courseCode"
+      WHERE cr."orgUnitId" = ANY($1)
+    `;
+    const params: unknown[] = [targetOrgUnits];
+
+    if (type) {
+      query += ` AND cr."entityType" = $${params.length + 1}`;
+      params.push(type);
+    }
+
+    if (courseCode) {
+      query += ` AND cr."courseCode" = $${params.length + 1}`;
+      params.push(courseCode);
+    }
+
+    if (fromDate) {
+      query += ` AND cr."createdAt" >= $${params.length + 1}`;
+      params.push(new Date(fromDate as string));
+    }
+
+    if (toDate) {
+      query += ` AND cr."createdAt" <= $${params.length + 1}`;
+      params.push(new Date(toDate as string));
+    }
+
+    query += ` GROUP BY cr."orgUnitId", cr."entityType", cr."courseCode", ac."name" ORDER BY cr."orgUnitId"`;
+
+    const rows: any = await prisma.$queryRawUnsafe(query, ...params);
+
+    const orgUnits = await prisma.orgUnit.findMany({
+      where: { id: { in: targetOrgUnits } },
+      select: { id: true, code: true, name: true, type: true },
+    });
+    const orgById = new Map(orgUnits.map((org) => [org.id, org]));
+
+    await logAudit(req, {
+      action: 'REPORT_COMMISSIONS_SUMMARY_VIEWED',
+      entityType: 'Report',
+      meta: { reportType: 'commissions-summary', filters: { orgUnitId, fromDate, toDate, type, courseCode } },
+    });
+
+    ok(res, rows.map((row: any) => ({
+      orgUnitId: row.orgunitid,
+      orgUnitCode: orgById.get(row.orgunitid)?.code ?? null,
+      orgUnitName: orgById.get(row.orgunitid)?.name ?? null,
+      orgUnitType: orgById.get(row.orgunitid)?.type ?? null,
+      type: row.type,
+      courseCode: row.coursecode ?? null,
+      courseName: row.coursename ?? null,
+      count: row.count ? parseInt(row.count.toString()) : 0,
+      totalAmount: row.totalamount ? parseInt(row.totalamount.toString()) : 0,
+    })));
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    console.error('Error fetching commission summary:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/reports/commissions/rollups
+router.get('/commissions/rollups', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    const validatedQuery = commissionSummarySchema.parse(req.query);
+    const { orgUnitId, fromDate, toDate, type, courseCode } = validatedQuery;
+
+    if (!req.user || (!isSuperadmin(req.user.role) &&
+        !isBusinessPartner(req.user.role) &&
+        !isFranchise(req.user.role) &&
+        !isCenterManager(req.user.role) &&
+        !isAdmissions(req.user.role) &&
+        req.user.role !== 'SALES')) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
+    }
+
+    if (fromDate && !isValidDate(fromDate as string)) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid fromDate format. Use YYYY-MM-DD.');
+    }
+
+    if (toDate && !isValidDate(toDate as string)) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid toDate format. Use YYYY-MM-DD.');
+    }
+
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+
+    let targetOrgUnits = allowedOrgUnits;
+    if (orgUnitId) {
+      const orgId = parseInt(orgUnitId as string);
+      if (isNaN(orgId)) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Invalid orgUnitId.');
+      }
+
+      if (!isSuperadmin(req.user.role)) {
+        if (!allowedOrgUnits.includes(orgId)) {
+          return fail(res, 403, 'ACCESS_DENIED', 'Access denied to specified org unit.');
+        }
+      }
+
+      targetOrgUnits = [orgId];
+    }
+
+    let query = `
+      SELECT 
+        cr."orgUnitId" as "orgUnitId",
+        ou."code" as "orgUnitCode",
+        ou."name" as "orgUnitName",
+        ou."type" as "orgUnitType",
+        cr."entityType" as "type",
+        cr."courseCode" as "courseCode",
+        ac."name" as "courseName",
+        COUNT(cr."id") as "count",
+        COALESCE(SUM(cr."amount"), 0) as "totalAmount"
+      FROM "CommissionRecord" cr
+      LEFT JOIN "OrgUnit" ou ON ou."id" = cr."orgUnitId"
+      LEFT JOIN "AbacusCourse" ac ON ac."code" = cr."courseCode"
+      WHERE cr."orgUnitId" = ANY($1)
+    `;
+    const params: unknown[] = [targetOrgUnits];
+
+    if (type) {
+      query += ` AND cr."entityType" = $${params.length + 1}`;
+      params.push(type);
+    }
+
+    if (courseCode) {
+      query += ` AND cr."courseCode" = $${params.length + 1}`;
+      params.push(courseCode);
+    }
+
+    if (fromDate) {
+      query += ` AND cr."createdAt" >= $${params.length + 1}`;
+      params.push(new Date(fromDate as string));
+    }
+
+    if (toDate) {
+      query += ` AND cr."createdAt" <= $${params.length + 1}`;
+      params.push(new Date(toDate as string));
+    }
+
+    if (req.user.role === 'SALES') {
+      query += ` AND (cr."meta"->>'createdByUserId')::int = $${params.length + 1}`;
+      params.push(req.user.id);
+    }
+
+    query += ` GROUP BY cr."orgUnitId", ou."code", ou."name", ou."type", cr."entityType", cr."courseCode", ac."name"`;
+
+    const rows: any = await prisma.$queryRawUnsafe(query, ...params);
+
+    const totals = rows.reduce(
+      (acc: { count: number; totalAmount: number }, row: any) => ({
+        count: acc.count + (row.count ? parseInt(row.count.toString()) : 0),
+        totalAmount: acc.totalAmount + (row.totalamount ? parseInt(row.totalamount.toString()) : 0),
+      }),
+      { count: 0, totalAmount: 0 },
+    );
+
+    const byType = new Map<string, { type: string; count: number; totalAmount: number }>();
+    const byCourse = new Map<string, { courseCode: string | null; courseName: string | null; count: number; totalAmount: number }>();
+    const byOrgUnit = new Map<number, { orgUnitId: number; orgUnitCode: string | null; orgUnitName: string | null; orgUnitType: string | null; count: number; totalAmount: number }>();
+
+    rows.forEach((row: any) => {
+      const count = row.count ? parseInt(row.count.toString()) : 0;
+      const totalAmount = row.totalamount ? parseInt(row.totalamount.toString()) : 0;
+
+      const typeKey = row.type ?? 'UNKNOWN';
+      const typeRow = byType.get(typeKey) ?? { type: typeKey, count: 0, totalAmount: 0 };
+      typeRow.count += count;
+      typeRow.totalAmount += totalAmount;
+      byType.set(typeKey, typeRow);
+
+      const courseKey = row.coursecode ?? 'UNKNOWN';
+      const courseRow =
+        byCourse.get(courseKey) ??
+        { courseCode: row.coursecode ?? null, courseName: row.coursename ?? null, count: 0, totalAmount: 0 };
+      courseRow.count += count;
+      courseRow.totalAmount += totalAmount;
+      byCourse.set(courseKey, courseRow);
+
+      const orgKey = row.orgunitid ?? 0;
+      const orgRow =
+        byOrgUnit.get(orgKey) ??
+        {
+          orgUnitId: row.orgunitid,
+          orgUnitCode: row.orgunitcode ?? null,
+          orgUnitName: row.orgunitname ?? null,
+          orgUnitType: row.orgunittype ?? null,
+          count: 0,
+          totalAmount: 0,
+        };
+      orgRow.count += count;
+      orgRow.totalAmount += totalAmount;
+      byOrgUnit.set(orgKey, orgRow);
+    });
+
+    await logAudit(req, {
+      action: 'REPORT_COMMISSIONS_ROLLUPS_VIEWED',
+      entityType: 'Report',
+      meta: { reportType: 'commissions-rollups', filters: { orgUnitId, fromDate, toDate, type, courseCode } },
+    });
+
+    ok(res, {
+      totals,
+      byType: Array.from(byType.values()),
+      byCourse: Array.from(byCourse.values()),
+      byOrgUnit: Array.from(byOrgUnit.values()),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    console.error('Error fetching commission rollups:', error);
     fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
   }
 });

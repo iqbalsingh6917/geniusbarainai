@@ -4,11 +4,22 @@ export class ApiError extends Error {
   status: number;
   maintenance?: boolean;
   code?: string;
-  constructor(status: number, message: string, maintenance = false, code?: string) {
+  details?: any;
+  requestId?: string;
+  constructor(
+    status: number,
+    message: string,
+    maintenance = false,
+    code?: string,
+    details?: any,
+    requestId?: string
+  ) {
     super(message);
     this.status = status;
     this.maintenance = maintenance;
     this.code = code;
+    this.details = details;
+    this.requestId = requestId;
   }
 }
 
@@ -17,15 +28,25 @@ async function handleResponse(response: Response) {
     let msg = `HTTP error! status: ${response.status}`;
     let maintenance = false;
     let code: string | undefined;
+    let details: any;
+    let requestId: string | undefined;
     try {
       const body = await response.json();
       msg = body?.error?.message || body?.message || msg;
       code = body?.error?.code || body?.code;
       maintenance = body?.error?.code === 'MAINTENANCE_MODE';
+      details = body?.error?.details;
+      requestId = body?.error?.requestId;
     } catch {
       // ignore
     }
-    throw new ApiError(response.status, msg, maintenance, code);
+    if (!requestId) {
+      requestId = response.headers.get('x-request-id') ?? undefined;
+    }
+    if (requestId) {
+      msg = `${msg} (requestId: ${requestId})`;
+    }
+    throw new ApiError(response.status, msg, maintenance, code, details, requestId);
   }
   if (response.status === 204) {
     return null;
@@ -36,21 +57,28 @@ async function handleResponse(response: Response) {
 
 function getAuthHeaders() {
   const token = localStorage.getItem('token');
-  console.log('Token from localStorage:', token);
   return {
     Authorization: `Bearer ${token}`,
   };
 }
 
+const inflightGets = new Map<string, Promise<any>>();
+
 export const apiClient = {
   get: async (url: string) => {
-    console.log('Making GET request to:', url);
-    const response = await fetch(url, { headers: getAuthHeaders() });
-    return handleResponse(response);
+    if (inflightGets.has(url)) {
+      return inflightGets.get(url);
+    }
+    const promise = fetch(url, { headers: getAuthHeaders() })
+      .then(handleResponse)
+      .finally(() => {
+        inflightGets.delete(url);
+      });
+    inflightGets.set(url, promise);
+    return promise;
   },
 
   post: async (url: string, data: any) => {
-    console.log('Making POST request to:', url);
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -63,7 +91,6 @@ export const apiClient = {
   },
 
   patch: async (url: string, data: any) => {
-    console.log('Making PATCH request to:', url);
     const response = await fetch(url, {
       method: 'PATCH',
       headers: {
@@ -76,7 +103,6 @@ export const apiClient = {
   },
 
   put: async (url: string, data: any) => {
-    console.log('Making PUT request to:', url);
     const response = await fetch(url, {
       method: 'PUT',
       headers: {
@@ -89,7 +115,6 @@ export const apiClient = {
   },
 
   delete: async (url: string) => {
-    console.log('Making DELETE request to:', url);
     const response = await fetch(url, {
       method: 'DELETE',
       headers: getAuthHeaders(),

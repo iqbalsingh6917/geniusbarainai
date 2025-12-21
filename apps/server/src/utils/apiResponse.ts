@@ -12,6 +12,7 @@ export interface ErrorResponse {
   error: {
     code: string;
     message: string;
+    requestId?: string;
     details?: any;
   };
 }
@@ -35,11 +36,13 @@ export function fail(
   message: string, 
   details?: any
 ): Response {
+  const requestId = res.locals?.requestId;
   return res.status(statusCode).json({
     success: false,
     error: {
       code,
       message,
+      ...(requestId && { requestId }),
       ...(details && { details })
     }
   } as ErrorResponse);
