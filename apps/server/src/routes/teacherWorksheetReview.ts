@@ -5,7 +5,6 @@ import prisma from '../prismaClient';
 import { authRequired, AuthRequest } from '../middleware/auth';
 import { isTeacher } from '../constants/roles';
 import { ok, fail } from '../utils/apiResponse';
-import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
 import { logAudit } from '../services/auditService';
 import { WorksheetEngineError } from '../services/worksheetEngineService';
 
@@ -25,16 +24,13 @@ async function getTeacherScope(teacherUserId: number) {
 
 async function teacherCanAccessAttempt(user: any, attempt: any) {
   if (!user) return false;
-  const { role, orgUnitId, id: userId } = user;
+  const { role, id: userId } = user;
   if (role === 'SUPERADMIN') return true;
 
-  const allowedOrgUnits = await getAllowedOrgUnitsForUser(role, orgUnitId || null);
   const scope = await getTeacherScope(userId);
 
   if (attempt.enrollmentId && scope.enrollmentIds.includes(attempt.enrollmentId)) return true;
   if (scope.studentIds.includes(attempt.studentId)) return true;
-  if (attempt.enrollment?.orgUnitId && allowedOrgUnits.includes(attempt.enrollment.orgUnitId)) return true;
-  if (attempt.student?.orgUnitId && allowedOrgUnits.includes(attempt.student.orgUnitId)) return true;
   return false;
 }
 
@@ -120,7 +116,10 @@ router.get('/attempts/:attemptId', async (req: AuthRequest, res: Response) => {
     });
 
     ok(res, {
-      attempt,
+      attempt: {
+        ...attempt,
+        reviewStatus: attempt.reviewedAt ? 'REVIEWED' : 'PENDING',
+      },
       worksheet: attempt.worksheet,
       student: {
         id: attempt.student.id,
@@ -157,6 +156,9 @@ router.put('/attempts/:attemptId/feedback', async (req: AuthRequest, res: Respon
     if (!parsed.success) {
       return fail(res, 400, 'VALIDATION_ERROR', 'Invalid payload', parsed.error.errors);
     }
+    if (parsed.data.teacherComment === undefined && parsed.data.teacherAdjustedScore === undefined) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'No feedback changes provided');
+    }
 
     const attempt = await prisma.studentWorksheetAttempt.findUnique({
       where: { id: attemptId },
@@ -171,16 +173,40 @@ router.put('/attempts/:attemptId/feedback', async (req: AuthRequest, res: Respon
       return fail(res, 403, 'ACCESS_DENIED', 'Not allowed to review this attempt');
     }
 
+    if (parsed.data.teacherAdjustedScore !== undefined && attempt.maxScore !== null) {
+      if (parsed.data.teacherAdjustedScore > attempt.maxScore) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Adjusted score exceeds max score');
+      }
+    }
+
+    const beforeSnapshot = {
+      teacherComment: attempt.teacherComment ?? null,
+      teacherAdjustedScore: attempt.teacherAdjustedScore ?? null,
+      reviewedAt: attempt.reviewedAt ?? null,
+      status: attempt.status ?? null,
+      totalScore: attempt.totalScore ?? null,
+    };
+
+    const noChange =
+      parsed.data.teacherComment === attempt.teacherComment &&
+      parsed.data.teacherAdjustedScore === attempt.teacherAdjustedScore &&
+      attempt.reviewedAt;
+
+    if (noChange) {
+      return ok(res, attempt);
+    }
+
     const data: any = {
-      teacherComment: parsed.data.teacherComment ?? null,
-      teacherAdjustedScore:
-        parsed.data.teacherAdjustedScore !== undefined ? parsed.data.teacherAdjustedScore : attempt.teacherAdjustedScore,
       reviewedAt: new Date(),
       graderUserId: req.user.id,
       status: attempt.status === 'SUBMITTED' ? 'GRADED' : attempt.status,
       updatedAt: new Date(),
     };
+    if (parsed.data.teacherComment !== undefined) {
+      data.teacherComment = parsed.data.teacherComment;
+    }
     if (parsed.data.teacherAdjustedScore !== undefined) {
+      data.teacherAdjustedScore = parsed.data.teacherAdjustedScore;
       data.totalScore = parsed.data.teacherAdjustedScore;
     }
 
@@ -194,8 +220,14 @@ router.put('/attempts/:attemptId/feedback', async (req: AuthRequest, res: Respon
       entityType: 'StudentWorksheetAttempt',
       entityId: attemptId,
       meta: {
-        teacherAdjustedScore: parsed.data.teacherAdjustedScore,
-        teacherComment: parsed.data.teacherComment,
+        before: beforeSnapshot,
+        after: {
+          teacherComment: updated.teacherComment ?? null,
+          teacherAdjustedScore: updated.teacherAdjustedScore ?? null,
+          reviewedAt: updated.reviewedAt ?? null,
+          status: updated.status ?? null,
+          totalScore: updated.totalScore ?? null,
+        },
       },
     });
 
@@ -240,6 +272,22 @@ router.post('/attempts/:attemptId/override-score', async (req: AuthRequest, res:
       return fail(res, 403, 'ACCESS_DENIED', 'Not allowed to override this attempt');
     }
 
+    if (attempt.maxScore !== null && parsed.data.score > attempt.maxScore) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Adjusted score exceeds max score');
+    }
+
+    if (attempt.teacherAdjustedScore === parsed.data.score && attempt.reviewedAt) {
+      return ok(res, attempt);
+    }
+
+    const beforeSnapshot = {
+      teacherComment: attempt.teacherComment ?? null,
+      teacherAdjustedScore: attempt.teacherAdjustedScore ?? null,
+      reviewedAt: attempt.reviewedAt ?? null,
+      status: attempt.status ?? null,
+      totalScore: attempt.totalScore ?? null,
+    };
+
     const updated = await prisma.studentWorksheetAttempt.update({
       where: { id: attemptId },
       data: {
@@ -255,7 +303,16 @@ router.post('/attempts/:attemptId/override-score', async (req: AuthRequest, res:
       action: 'WORKSHEET_SCORE_OVERRIDDEN',
       entityType: 'StudentWorksheetAttempt',
       entityId: attemptId,
-      meta: { score: parsed.data.score },
+      meta: {
+        before: beforeSnapshot,
+        after: {
+          teacherComment: updated.teacherComment ?? null,
+          teacherAdjustedScore: updated.teacherAdjustedScore ?? null,
+          reviewedAt: updated.reviewedAt ?? null,
+          status: updated.status ?? null,
+          totalScore: updated.totalScore ?? null,
+        },
+      },
     });
 
     ok(res, updated);

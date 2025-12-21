@@ -13,10 +13,23 @@ interface AttemptSummary {
   teacherAdjustedScore: number | null;
   teacherComment: string | null;
   reviewedAt: string | null;
+  reviewStatus?: 'PENDING' | 'REVIEWED';
   worksheet: { id: number; title: string };
   course: { code: string; name: string };
   module: { id: number; name: string; index: number };
   level: { id: number; name: string; order: number };
+}
+
+interface AssignmentSummary {
+  id: number;
+  status: string;
+  dueDate: string | null;
+  submittedAt: string | null;
+  worksheet: { id: number; title: string };
+  course: { code: string; name: string };
+  module: { id: number; name: string; index: number };
+  level: { id: number; name: string; order: number };
+  student: { id: number; name: string };
 }
 
 interface ReviewQuestion {
@@ -51,10 +64,19 @@ const TeacherWorksheetHistoryPage: React.FC = () => {
   const [search] = useSearchParams();
   const [studentIdInput, setStudentIdInput] = useState<string>(search.get('studentId') || '');
   const [attempts, setAttempts] = useState<AttemptSummary[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentSummary[]>([]);
   const [selectedAttemptId, setSelectedAttemptId] = useState<number | null>(null);
   const [selectedAttempt, setSelectedAttempt] = useState<ReviewAttempt | null>(null);
   const [loading, setLoading] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'assigned' | 'submitted' | 'pending'>('assigned');
+  const [filters, setFilters] = useState({
+    courseCode: '',
+    moduleId: '',
+    levelId: '',
+    fromDate: '',
+    toDate: '',
+  });
   const [feedback, setFeedback] = useState<{ comment: string; adjustedScore: string }>({
     comment: '',
     adjustedScore: '',
@@ -65,6 +87,53 @@ const TeacherWorksheetHistoryPage: React.FC = () => {
       setLoading(true);
       const data: AttemptSummary[] = await apiClient.get(
         `/api/teacher/worksheets/attempts/history/${studentId}`
+      );
+      setAttempts(data || []);
+    } catch (err: any) {
+      showToast(err?.message || 'Unable to load attempts', 'error');
+      setAttempts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAssignments = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (studentIdInput) params.set('studentId', studentIdInput);
+      if (filters.courseCode) params.set('courseCode', filters.courseCode);
+      if (filters.moduleId) params.set('moduleId', filters.moduleId);
+      if (filters.levelId) params.set('levelId', filters.levelId);
+      if (filters.fromDate) params.set('fromDate', filters.fromDate);
+      if (filters.toDate) params.set('toDate', filters.toDate);
+      params.set('status', 'NOT_STARTED,IN_PROGRESS');
+      const data: AssignmentSummary[] = await apiClient.get(
+        `/api/worksheet-assignments/teacher?${params.toString()}`
+      );
+      setAssignments(data || []);
+    } catch (err: any) {
+      showToast(err?.message || 'Unable to load assignments', 'error');
+      setAssignments([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAttempts = async (mode: 'submitted' | 'pending') => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (studentIdInput) params.set('studentId', studentIdInput);
+      if (filters.courseCode) params.set('courseCode', filters.courseCode);
+      if (filters.moduleId) params.set('moduleId', filters.moduleId);
+      if (filters.levelId) params.set('levelId', filters.levelId);
+      if (filters.fromDate) params.set('fromDate', filters.fromDate);
+      if (filters.toDate) params.set('toDate', filters.toDate);
+      params.set('status', mode === 'submitted' ? 'SUBMITTED,GRADED' : 'SUBMITTED');
+      if (mode === 'pending') params.set('reviewStatus', 'PENDING');
+      const data: AttemptSummary[] = await apiClient.get(
+        `/api/teacher/worksheets/attempts?${params.toString()}`
       );
       setAttempts(data || []);
     } catch (err: any) {
@@ -112,6 +181,13 @@ const TeacherWorksheetHistoryPage: React.FC = () => {
       if (studentIdInput) {
         fetchHistory(Number(studentIdInput));
       }
+      if (activeTab === 'assigned') {
+        fetchAssignments();
+      } else if (activeTab === 'submitted') {
+        fetchAttempts('submitted');
+      } else {
+        fetchAttempts('pending');
+      }
     } catch (err: any) {
       showToast(err?.message || 'Unable to save feedback', 'error');
     }
@@ -126,6 +202,10 @@ const TeacherWorksheetHistoryPage: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    fetchAssignments();
+  }, []);
+
   return (
     <div className="page-container">
       <div className="card-header" style={{ marginBottom: '0.5rem' }}>
@@ -137,7 +217,7 @@ const TeacherWorksheetHistoryPage: React.FC = () => {
 
       <div className="card" style={{ marginBottom: '0.75rem' }}>
         <div className="card-header">
-          <div className="card-title">Find attempts</div>
+          <div className="card-title">Filters</div>
         </div>
         <div className="stat-grid">
           <div className="stat-card">
@@ -150,19 +230,70 @@ const TeacherWorksheetHistoryPage: React.FC = () => {
               placeholder="Enter student ID"
             />
           </div>
+          <div className="stat-card">
+            <div className="muted">Course code</div>
+            <input
+              type="text"
+              className="form-control"
+              value={filters.courseCode}
+              onChange={(e) => setFilters((prev) => ({ ...prev, courseCode: e.target.value }))}
+              placeholder="ABACUS_L1_REGULAR"
+            />
+          </div>
+          <div className="stat-card">
+            <div className="muted">Module ID</div>
+            <input
+              type="number"
+              className="form-control"
+              value={filters.moduleId}
+              onChange={(e) => setFilters((prev) => ({ ...prev, moduleId: e.target.value }))}
+              placeholder="Module id"
+            />
+          </div>
+          <div className="stat-card">
+            <div className="muted">Level ID</div>
+            <input
+              type="number"
+              className="form-control"
+              value={filters.levelId}
+              onChange={(e) => setFilters((prev) => ({ ...prev, levelId: e.target.value }))}
+              placeholder="Level id"
+            />
+          </div>
+          <div className="stat-card">
+            <div className="muted">From date</div>
+            <input
+              type="date"
+              className="form-control"
+              value={filters.fromDate}
+              onChange={(e) => setFilters((prev) => ({ ...prev, fromDate: e.target.value }))}
+            />
+          </div>
+          <div className="stat-card">
+            <div className="muted">To date</div>
+            <input
+              type="date"
+              className="form-control"
+              value={filters.toDate}
+              onChange={(e) => setFilters((prev) => ({ ...prev, toDate: e.target.value }))}
+            />
+          </div>
           <div className="stat-card" style={{ alignItems: 'flex-end' }}>
             <button
               className="btn btn-primary btn-sm"
               onClick={() => {
-                const idNum = parseInt(studentIdInput, 10);
-                if (!Number.isNaN(idNum)) {
-                  fetchHistory(idNum);
-                  setSelectedAttemptId(null);
-                  setSelectedAttempt(null);
+                if (activeTab === 'assigned') {
+                  fetchAssignments();
+                } else if (activeTab === 'submitted') {
+                  fetchAttempts('submitted');
+                } else {
+                  fetchAttempts('pending');
                 }
+                setSelectedAttemptId(null);
+                setSelectedAttempt(null);
               }}
             >
-              Load attempts
+              Apply filters
             </button>
           </div>
         </div>
@@ -170,14 +301,86 @@ const TeacherWorksheetHistoryPage: React.FC = () => {
 
       <div className="card" style={{ marginBottom: '0.75rem' }}>
         <div className="card-header">
-          <div className="card-title">Attempts</div>
+          <div className="card-title">Worksheets</div>
+          <div className="tabs">
+            <button
+              className={`tab ${activeTab === 'assigned' ? 'tab-active' : ''}`}
+              onClick={() => {
+                setActiveTab('assigned');
+                setAttempts([]);
+                setSelectedAttemptId(null);
+                setSelectedAttempt(null);
+                fetchAssignments();
+              }}
+            >
+              Assigned
+            </button>
+            <button
+              className={`tab ${activeTab === 'submitted' ? 'tab-active' : ''}`}
+              onClick={() => {
+                setActiveTab('submitted');
+                setAssignments([]);
+                setSelectedAttemptId(null);
+                setSelectedAttempt(null);
+                fetchAttempts('submitted');
+              }}
+            >
+              Submitted
+            </button>
+            <button
+              className={`tab ${activeTab === 'pending' ? 'tab-active' : ''}`}
+              onClick={() => {
+                setActiveTab('pending');
+                setAssignments([]);
+                setSelectedAttemptId(null);
+                setSelectedAttempt(null);
+                fetchAttempts('pending');
+              }}
+            >
+              Pending review
+            </button>
+          </div>
         </div>
         {loading ? (
           <div style={{ textAlign: 'center', padding: '0.5rem' }}>
             <LoadingSpinner size="md" />
           </div>
+        ) : activeTab === 'assigned' ? (
+          assignments.length === 0 ? (
+            <div className="muted">No assignments found.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Worksheet</th>
+                    <th>Course/Module/Level</th>
+                    <th>Status</th>
+                    <th>Due</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignments.map((assignment) => (
+                    <tr key={assignment.id}>
+                      <td>{assignment.student.name || '-'}</td>
+                      <td>{assignment.worksheet.title}</td>
+                      <td>
+                        <div>{assignment.course.code}</div>
+                        <div className="muted">
+                          Module {assignment.module.index} - Level {assignment.level.order}
+                        </div>
+                      </td>
+                      <td>{assignment.status}</td>
+                      <td>{assignment.dueDate ? new Date(assignment.dueDate).toLocaleDateString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : attempts.length === 0 ? (
-          <div className="muted">No attempts loaded.</div>
+          <div className="muted">No attempts found.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="table">
