@@ -15,7 +15,8 @@
     "db:seed:licenses": "pnpm --filter @db run seed:licenses",
     "db:repair:license-seats": "pnpm --filter @db run repair:license-seats",
     "types:build": "pnpm --filter @lms/types build",
-    "demo:reset": "ts-node --esm --transpile-only scripts/demo-reset.ts"
+    "demo:reset": "node scripts/demo-reset.js",
+    "demo:reset:start": "node scripts/demo-reset.js --start"
   },
   "devDependencies": {
     "@types/node": "^20.19.25",

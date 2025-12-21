@@ -1,16 +1,13 @@
-import { spawn, spawnSync } from 'child_process';
-import path from 'path';
-import { fileURLToPath } from 'url';
+const { spawn, spawnSync } = require('child_process');
+const path = require('path');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const wantsStart = args.includes('--start');
 const seedOnly = args.includes('--seed-only') || !wantsStart;
 const noReset = args.includes('--no-reset');
 
-function runStep(title: string, command: string, commandArgs: string[], env: NodeJS.ProcessEnv = {}) {
+function runStep(title, command, commandArgs, env = {}) {
   console.log(`\n=== ${title} ===`);
   const result = spawnSync(command, commandArgs, {
     cwd: rootDir,
@@ -35,7 +32,7 @@ function printCheatSheet() {
     ['Teacher', 'TEA001', 'Test@12345'],
     ['Student', 'STU001', 'Test@12345'],
   ];
-  const pad = (val: string, size: number) => (val + ' '.repeat(size)).slice(0, size);
+  const pad = (val, size) => (val + ' '.repeat(size)).slice(0, size);
   const widths = [16, 14, 12];
   console.log('\nDemo accounts (after seed):');
   rows.forEach((row, idx) => {

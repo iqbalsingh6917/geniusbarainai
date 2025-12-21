@@ -11,6 +11,10 @@
   - `pnpm --filter @lms/db run seed:licenses`
 - Tests use isolated fixtures inside `apps/server/tests/helpers` rather than global seeds.
 
+### Demo reset
+- Reset + seed (CI-safe, exits): `pnpm demo:reset`
+- Reset + seed + start dev servers (long-running): `pnpm demo:reset:start`
+
 ### Core backend checks (pre-release)
 - `pnpm --filter @lms/server test:all-core`
 - `pnpm --filter @lms/server build`
