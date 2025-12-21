@@ -1,0 +1,91 @@
+import { spawn, spawnSync } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '..');
+const args = process.argv.slice(2);
+const seedOnly = args.includes('--seed-only') || args.includes('--no-start');
+const startOnly = args.includes('--start-only');
+const noReset = args.includes('--no-reset');
+
+function runStep(title: string, command: string, commandArgs: string[], env: NodeJS.ProcessEnv = {}) {
+  console.log(`\n=== ${title} ===`);
+  const result = spawnSync(command, commandArgs, {
+    cwd: rootDir,
+    stdio: 'inherit',
+    env: { ...process.env, ...env },
+    shell: process.platform === 'win32',
+  });
+  if (result.status !== 0) {
+    console.error(`Step "${title}" failed with code ${result.status}`);
+    process.exit(result.status ?? 1);
+  }
+}
+
+function printCheatSheet() {
+  const rows = [
+    ['Role', 'Username', 'Password'],
+    ['Superadmin', 'SA001', 'Test@12345'],
+    ['Business Partner', 'BP001', 'Test@12345'],
+    ['Franchise', 'FR001', 'Test@12345'],
+    ['Center Manager', 'CE001', 'Test@12345'],
+    ['Admissions', 'AD001', 'Test@12345'],
+    ['Teacher', 'TEA001', 'Test@12345'],
+    ['Student', 'STU001', 'Test@12345'],
+  ];
+  const pad = (val: string, size: number) => (val + ' '.repeat(size)).slice(0, size);
+  const widths = [16, 14, 12];
+  console.log('\nDemo accounts (after seed):');
+  rows.forEach((row, idx) => {
+    const line = row.map((cell, i) => pad(cell, widths[i])).join('   ');
+    console.log(idx === 0 ? line : `  ${line}`);
+  });
+  console.log('\nUI entry point: http://localhost:5173/login\n');
+}
+
+if (!startOnly) {
+  if (!noReset) {
+    runStep('Resetting database', 'pnpm', ['--filter', '@db', 'prisma', 'migrate', 'reset', '--force', '--skip-seed']);
+  }
+  runStep('Seeding database (DEMO_SEED=true)', 'pnpm', ['--filter', '@db', 'seed'], {
+    DEMO_SEED: 'true',
+  });
+  printCheatSheet();
+}
+
+if (seedOnly) {
+  process.exit(0);
+}
+
+console.log('\nStarting dev servers (Ctrl+C to stop both)...');
+const serverProc = spawn('pnpm', ['--filter', '@lms/server', 'dev'], {
+  cwd: rootDir,
+  stdio: 'inherit',
+  shell: process.platform === 'win32',
+});
+const webProc = spawn('pnpm', ['--filter', '@lms/web', 'dev'], {
+  cwd: rootDir,
+  stdio: 'inherit',
+  shell: process.platform === 'win32',
+});
+
+const shutdown = () => {
+  serverProc.kill('SIGINT');
+  webProc.kill('SIGINT');
+  process.exit(0);
+};
+
+serverProc.on('exit', (code) => {
+  console.log(`@lms/server exited with code ${code}`);
+  shutdown();
+});
+
+webProc.on('exit', (code) => {
+  console.log(`@lms/web exited with code ${code}`);
+  shutdown();
+});
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

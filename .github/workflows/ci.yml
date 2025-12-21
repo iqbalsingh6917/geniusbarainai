@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: beats_lms_v2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run core verification
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/beats_lms_v2
+        run: pnpm ci:verify
+
+      - name: Prepare demo seed
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/beats_lms_v2
+        run: pnpm demo:reset -- --seed-only
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @lms/web exec playwright install --with-deps
+
+      - name: Run Playwright smoke tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/beats_lms_v2
+        run: pnpm --filter @lms/web test:e2e

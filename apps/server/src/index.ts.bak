@@ -1,0 +1,63 @@
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import config from './config';
+import prisma from './prismaClient';
+
+// Import routes
+import authRoutes from './routes/auth';
+import abacusCoursesRoutes from './routes/abacusCourses';
+import abacusLevelsRoutes from './routes/superadminAbacusLevels';
+import abacusWorksheetsRoutes from './routes/abacusWorksheets';
+import abacusStudentsRoutes from './routes/abacusStudents';
+import abacusEnrollmentsRoutes from './routes/abacusEnrollments';
+import teacherAbacusRoutes from './routes/teacherAbacus';
+import dashboardRoutes from './routes/dashboard';
+import financeRoutes from './routes/finance';
+import orgManagementRoutes from './routes/orgManagement';
+import teacherAssignmentsRoutes from './routes/teacherAssignments';
+import abacusScheduleRoutes from './routes/abacusSchedule';
+import attendanceRoutes from './routes/attendance';
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Health check route
+app.get('/health', (req: Request, res: Response) => {
+  res.json({ status: 'ok' });
+});
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/finance', financeRoutes);
+app.use('/api/org', orgManagementRoutes);
+app.use('/api/superadmin/org-units', superadminOrgRoutes);
+app.use('/api/superadmin/users', superadminUsersRoutes);
+app.use('/superadmin/abacus/courses', abacusCoursesRoutes);
+app.use('/superadmin/abacus-levels', abacusLevelsRoutes);
+app.use('/superadmin/abacus-worksheets', abacusWorksheetsRoutes);
+app.use('/superadmin/abacus/students', abacusStudentsRoutes);
+app.use('/superadmin/abacus/enrollments', abacusEnrollmentsRoutes);
+app.use('/teacher/abacus', teacherAbacusRoutes);
+app.use('/api/teacher-assignments', teacherAssignmentsRoutes);
+app.use('/api/schedule', abacusScheduleRoutes);
+app.use('/api/attendance', attendanceRoutes);
+
+// Start server
+const server = app.listen(config.port, () => {
+  console.log(`Server running on port ${config.port}`);
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down gracefully...');
+  await prisma.$disconnect();
+  server.close(() => {
+    console.log('Server closed');
+  });
+});
+
+export default app;

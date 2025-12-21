@@ -1,0 +1,284 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  role         String
+  orgUnitId    Int?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orgUnit      OrgUnit? @relation(fields: [orgUnitId], references: [id])
+  teacherAssignments TeacherStudentAssignment[] // Reverse relation for teacher assignments
+  classSchedules AbacusClassSchedule[] // Reverse relation for class schedules
+  recordedAttendances StudentAttendance[] // Reverse relation for recorded attendances
+}
+
+model Student {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique   // e.g., "ST0001"
+  firstName    String
+  lastName     String?
+  age          Int?
+  parentName   String?
+  contactPhone String?
+  contactEmail String?
+  status       String   // "ACTIVE" | "INACTIVE" | "DROPPED" etc.
+  orgUnitId    Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  enrollments  AbacusEnrollment[]
+  feeRecords StudentFeeRecord[]
+  teacherAssignments TeacherStudentAssignment[] // Reverse relation for teacher assignments
+  attendances StudentAttendance[] // Reverse relation for attendances
+
+  orgUnit      OrgUnit? @relation(fields: [orgUnitId], references: [id])
+}
+
+model AbacusEnrollment {
+  id             Int      @id @default(autoincrement())
+  studentId      Int
+  courseId       Int      // FK to AbacusCourse
+  currentModuleId Int?    // FK to AbacusModule (where the student is currently studying)
+  currentLevelId Int?     // FK to AbacusLevel (specific micro-level)
+  status         String   // "ONGOING" | "COMPLETED" | "PAUSED"
+  startDate      DateTime @default(now())
+  endDate        DateTime?
+  notes          String?
+  orgUnitId      Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  student   Student       @relation(fields: [studentId], references: [id])
+  course    AbacusCourse  @relation(fields: [courseId], references: [id])
+  currentModule AbacusModule? @relation("EnrollmentCurrentModule", fields: [currentModuleId], references: [id])
+  currentLevel  AbacusLevel?  @relation("EnrollmentCurrentLevel", fields: [currentLevelId], references: [id])
+  assessments   AbacusAssessment[]
+  feeRecords StudentFeeRecord[]
+  orgUnit       OrgUnit? @relation(fields: [orgUnitId], references: [id])
+  teacherAssignments TeacherStudentAssignment[] // Reverse relation for teacher assignments
+  attendances StudentAttendance[] // Reverse relation for attendances
+}
+
+model OrgUnit {
+  id        Int       @id @default(autoincrement())
+  code      String    @unique    // e.g. "SA_ROOT", "CE001"
+  name      String
+  type      String              // "SUPERADMIN_ROOT" | "BUSINESS_PARTNER" | "FRANCHISE" | "CENTER"
+  parentId  Int?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  parent    OrgUnit?  @relation("OrgUnitParent", fields: [parentId], references: [id])
+  children  OrgUnit[] @relation("OrgUnitParent")
+  users     User[]
+  students  Student[]
+  enrollments AbacusEnrollment[]
+  feeRecords StudentFeeRecord[]
+  payments PaymentTransaction[]
+  teacherAssignments TeacherStudentAssignment[] // Reverse relation for teacher assignments
+  classSchedules AbacusClassSchedule[] // Reverse relation for class schedules
+  attendances StudentAttendance[] // Reverse relation for attendances
+}
+
+model AbacusCourse {
+  id          Int            @id @default(autoincrement())
+  code        String         @unique
+  name        String
+  variant     String
+  description String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  modules     AbacusModule[]
+  enrollments AbacusEnrollment[]
+}
+
+model AbacusModule {
+  id         Int           @id @default(autoincrement())
+  courseId   Int
+  index      Int
+  title      String
+  summary    String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  skillFocus String?
+  levels     AbacusLevel[]
+  course     AbacusCourse  @relation(fields: [courseId], references: [id])
+  enrollmentsCurrentModule AbacusEnrollment[] @relation("EnrollmentCurrentModule")
+
+  @@unique([courseId, index])
+}
+
+model AbacusLevel {
+  id               Int               @id @default(autoincrement())
+  moduleCode       String?
+  order            Int
+  name             String
+  difficulty       String
+  ageGroup         String?
+  operations       String[]
+  formulas         String[]
+  visualization    String?
+  maxDigits        Int?
+  maxTerms         Int?
+  examDurationMin  Int
+  passingPercent   Int
+  timeBonusEnabled Boolean           @default(false)
+  scoringRules     Json?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  moduleId         Int
+  module           AbacusModule      @relation(fields: [moduleId], references: [id])
+  worksheets       AbacusWorksheet[]
+  enrollmentsCurrentLevel AbacusEnrollment[] @relation("EnrollmentCurrentLevel")
+  assessments      AbacusAssessment[]
+
+  @@unique([moduleId, order], name: "moduleId_order_unique")
+}
+
+model AbacusWorksheet {
+  id             Int         @id @default(autoincrement())
+  levelId        Int
+  title          String
+  kind           String
+  difficultyBand String?
+  questionCount  Int?
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  level          AbacusLevel @relation(fields: [levelId], references: [id])
+
+  @@index([levelId])
+}
+
+model AbacusAssessment {
+  id             Int      @id @default(autoincrement())
+  enrollmentId   Int
+  levelId        Int      // FK to AbacusLevel
+  scorePercent   Int
+  passed         Boolean
+  attemptDate    DateTime @default(now())
+  remarks        String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  enrollment AbacusEnrollment @relation(fields: [enrollmentId], references: [id])
+  level      AbacusLevel      @relation(fields: [levelId], references: [id])
+}
+
+model FeeSetting {
+  id               Int      @id @default(autoincrement())
+  amountPerStudent Int      // license fee per student
+  currency         String   @default("INR")
+  updatedAt        DateTime @updatedAt
+}
+
+model StudentFeeRecord {
+  id            Int      @id @default(autoincrement())
+  studentId     Int
+  enrollmentId  Int
+  orgUnitId     Int
+  amount        Int
+  status        String    // PENDING, PAID
+  createdAt     DateTime  @default(now())
+  paidAt        DateTime?
+
+  student    Student          @relation(fields: [studentId], references: [id])
+  enrollment AbacusEnrollment @relation(fields: [enrollmentId], references: [id])
+  orgUnit    OrgUnit          @relation(fields: [orgUnitId], references: [id])
+}
+
+model PaymentTransaction {
+  id        Int      @id @default(autoincrement())
+  orgUnitId Int
+  amount    Int
+  type      String    // CREDIT (center → superadmin)
+  method    String?   // UPI, CASH, BANK
+  notes     String?
+  createdAt DateTime  @default(now())
+
+  orgUnit OrgUnit @relation(fields: [orgUnitId], references: [id])
+}
+
+model AbacusClassSchedule {
+  id            Int      @id @default(autoincrement())
+  orgUnitId     Int
+  courseCode    String
+  dayOfWeek     Int      // 0 = Sunday, 1 = Monday, ... 6 = Saturday
+  startTime     String   // "17:00" (HH:mm) for now
+  endTime       String   // "18:00"
+  teacherUserId Int?
+  room          String?
+  notes         String?
+  isActive      Boolean  @default(true)
+
+  orgUnit       OrgUnit  @relation(fields: [orgUnitId], references: [id])
+  teacher       User?    @relation(fields: [teacherUserId], references: [id])
+  attendances   StudentAttendance[]
+}
+
+model StudentAttendance {
+  id            Int      @id @default(autoincrement())
+  studentId     Int
+  enrollmentId  Int?
+  orgUnitId     Int
+  classDate     DateTime
+  scheduleId    Int?
+  status        String   // PRESENT, ABSENT, LATE, EXCUSED
+  remarks       String?
+  recordedById  Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  student       Student          @relation(fields: [studentId], references: [id])
+  enrollment    AbacusEnrollment? @relation(fields: [enrollmentId], references: [id])
+  orgUnit       OrgUnit          @relation(fields: [orgUnitId], references: [id])
+  schedule      AbacusClassSchedule? @relation(fields: [scheduleId], references: [id])
+  recordedBy    User             @relation(fields: [recordedById], references: [id])
+
+  @@index([classDate, orgUnitId])
+  @@index([scheduleId, classDate])
+}
+
+model TeacherStudentAssignment {
+  id            Int      @id @default(autoincrement())
+  teacherUserId Int
+  studentId     Int
+  enrollmentId  Int?
+  orgUnitId     Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  teacher    User             @relation(fields: [teacherUserId], references: [id])
+  student    Student          @relation(fields: [studentId], references: [id])
+  enrollment AbacusEnrollment? @relation(fields: [enrollmentId], references: [id])
+  orgUnit    OrgUnit          @relation(fields: [orgUnitId], references: [id])
+
+  @@unique([teacherUserId, studentId], name: "teacher_student_unique")
+}
+
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  usedAt    DateTime?
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([token])
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Double Digit Addition",
+  "moduleCode": "ABACUS_L1_REGULAR",
+  "order": 4,
+  "difficulty": "MEDIUM",
+  "ageGroup": "9-12",
+  "operations": ["ADDITION"],
+  "formulas": ["carry"],
+  "maxDigits": 2,
+  "maxTerms": 2,
+  "examDurationMin": 20,
+  "passingPercent": 80,
+  "timeBonusEnabled": true
+}

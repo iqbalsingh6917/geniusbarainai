@@ -1,0 +1,102 @@
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import LoginPage from './pages/LoginPage';
+import SuperadminLayout from './layouts/SuperadminLayout';
+import SuperadminDashboard from './pages/SuperadminDashboardReal';
+import AbacusCourseStudio from './pages/AbacusCourseStudio';
+import AbacusCurriculumBuilder from './pages/AbacusCurriculumBuilder';
+import AbacusStudents from './pages/AbacusStudents';
+import AbacusStudentDetail from './pages/AbacusStudentDetail';
+import AbacusEnrollments from './pages/AbacusEnrollments';
+import AbacusEnrollmentDetail from './pages/AbacusEnrollmentDetail';
+import BusinessPartnerLayout from './layouts/BusinessPartnerLayout';
+import BusinessPartnerDashboard from './pages/BusinessPartnerDashboardReal';
+import FranchiseLayout from './layouts/FranchiseLayout';
+import FranchiseDashboard from './pages/FranchiseDashboardReal';
+import CenterLayout from './layouts/CenterLayout';
+import CenterDashboard from './pages/CenterDashboardReal';
+import TeacherLayout from './layouts/TeacherLayout';
+import TeacherDashboard from './pages/TeacherDashboardReal';
+import FinanceSettings from './pages/FinanceSettings';
+import FinanceDues from './pages/FinanceDues';
+import FinanceTransactions from './pages/FinanceTransactions';
+import CenterFinance from './pages/CenterFinance';
+import TestPage from './pages/TestPage';
+import SimpleFinanceSettings from './pages/SimpleFinanceSettings';
+import OrgManagement from './pages/OrgManagement';
+import CenterTeacherAssignments from './pages/CenterTeacherAssignments';
+import CenterSchedule from './pages/CenterSchedule';
+import CenterAttendance from './pages/CenterAttendance';
+import TeacherMyStudents from './pages/TeacherMyStudents';
+import TeacherMyEnrollments from './pages/TeacherMyEnrollments';
+import TeacherCurriculum from './pages/TeacherCurriculum';
+import TeacherSchedule from './pages/TeacherSchedule';
+import TeacherAttendance from './pages/TeacherAttendance';
+
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<LoginPage />} />
+          
+          {/* Superadmin routes */}
+          <Route path="/superadmin" element={<SuperadminLayout />}>
+            <Route index element={<SuperadminDashboard />} />
+            <Route path="dashboard" element={<SuperadminDashboard />} />
+            <Route path="abacus-course-studio" element={<AbacusCourseStudio />} />
+            <Route path="abacus-builder" element={<AbacusCurriculumBuilder />} />
+            <Route path="abacus-students" element={<AbacusStudents />} />
+            <Route path="abacus-students/:id" element={<AbacusStudentDetail />} />
+            <Route path="abacus-enrollments" element={<AbacusEnrollments />} />
+            <Route path="abacus-enrollments/:id" element={<AbacusEnrollmentDetail />} />
+            <Route path="finance-settings" element={<FinanceSettings />} />
+            <Route path="finance-dues" element={<FinanceDues />} />
+            <Route path="finance-transactions" element={<FinanceTransactions />} />
+            <Route path="org-management" element={<OrgManagement />} />
+            <Route path="test" element={<TestPage />} />
+            <Route path="simple-finance-settings" element={<SimpleFinanceSettings />} />
+          </Route>
+          
+          {/* Business Partner routes */}
+          <Route path="/business-partner" element={<BusinessPartnerLayout />}>
+            <Route index element={<BusinessPartnerDashboard />} />
+            <Route path="dashboard" element={<BusinessPartnerDashboard />} />
+          </Route>
+          
+          {/* Franchise routes */}
+          <Route path="/franchise" element={<FranchiseLayout />}>
+            <Route index element={<FranchiseDashboard />} />
+            <Route path="dashboard" element={<FranchiseDashboard />} />
+          </Route>
+          
+          {/* Center routes */}
+          <Route path="/center" element={<CenterLayout />}>
+            <Route index element={<CenterDashboard />} />
+            <Route path="dashboard" element={<CenterDashboard />} />
+            <Route path="students" element={<AbacusStudents />} />
+            <Route path="enrollments" element={<AbacusEnrollments />} />
+            <Route path="teacher-assignments" element={<CenterTeacherAssignments />} />
+            <Route path="schedule" element={<CenterSchedule />} />
+            <Route path="attendance" element={<CenterAttendance />} />
+            <Route path="finance" element={<CenterFinance />} />
+          </Route>
+          
+          {/* Teacher routes */}
+          <Route path="/teacher" element={<TeacherLayout />}>
+            <Route index element={<TeacherDashboard />} />
+            <Route path="dashboard" element={<TeacherDashboard />} />
+            <Route path="my-students" element={<TeacherMyStudents />} />
+            <Route path="my-enrollments" element={<TeacherMyEnrollments />} />
+            <Route path="curriculum" element={<TeacherCurriculum />} />
+            <Route path="schedule" element={<TeacherSchedule />} />
+            <Route path="attendance" element={<TeacherAttendance />} />
+          </Route>
+        </Routes>
+      </Router>
+    </AuthProvider>
+  );
+}
+
+export default App;

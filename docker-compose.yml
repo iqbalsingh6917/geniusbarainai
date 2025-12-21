@@ -1,0 +1,40 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: beats
+      POSTGRES_PASSWORD: beats
+      POSTGRES_DB: beats_lms_v2
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    environment:
+      DATABASE_URL: postgres://beats:beats@db:5432/beats_lms_v2
+      JWT_SECRET: changeme-in-prod
+      FRONTEND_URL: http://localhost:4173
+      NODE_ENV: production
+    depends_on:
+      - db
+    ports:
+      - "9000:9000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:9000
+    ports:
+      - "4173:4173"
+    depends_on:
+      - server
+
+volumes:
+  db_data:

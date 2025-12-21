@@ -1,0 +1,732 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPERADMIN
+  BUSINESS_PARTNER
+  FRANCHISE
+  CENTER_MANAGER
+  ADMISSIONS
+  TEACHER
+  STUDENT
+}
+
+enum WorksheetGenerationMode {
+  STATIC
+  TEMPLATE
+  AI
+}
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  TRIAL_BOOKED
+  TRIAL_DONE
+  CONVERTED
+  LOST
+}
+
+enum LeadSource {
+  CAMPAIGN
+  REFERRAL
+  WALK_IN
+  WHATSAPP
+  OTHER
+}
+
+enum ModuleAttemptStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum WorksheetAttemptStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ExamAttemptStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  role         UserRole
+  orgUnitId    Int?
+  studentId    Int?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orgUnit             OrgUnit?                   @relation(fields: [orgUnitId], references: [id])
+  student             Student?                   @relation("StudentUser", fields: [studentId], references: [id])
+  teacherAssignments  TeacherStudentAssignment[] // Reverse relation for teacher assignments
+  classSchedules      AbacusClassSchedule[] // Reverse relation for class schedules
+  recordedAttendances StudentAttendance[] // Reverse relation for recorded attendances
+  passwordResetTokens PasswordResetToken[] // Reverse relation for password reset tokens
+  auditLogs           AuditLog[] // Reverse relation for audit logs
+  worksheetAssignments StudentWorksheetAssignment[] @relation("AssignmentAssignedBy")
+  gradedWorksheetAttempts StudentWorksheetAttempt[] @relation("WorksheetAttemptGrader")
+  leadsCreated       Lead[] @relation("LeadCreatedBy")
+  leadsAssigned      Lead[] @relation("LeadAssignedTo")
+  leadActivities     LeadActivity[] @relation("LeadActivityActor")
+}
+
+model Student {
+  id                 Int                        @id @default(autoincrement())
+  code               String                     @unique // e.g., "ST0001"
+  firstName          String
+  lastName           String?
+  age                Int?
+  parentName         String?
+  contactPhone       String?
+  contactEmail       String?
+  status             String // "ACTIVE" | "INACTIVE" | "DROPPED" etc.
+  orgUnitId          Int?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  enrollments        AbacusEnrollment[]
+  feeRecords         StudentFeeRecord[]
+  teacherAssignments TeacherStudentAssignment[] // Reverse relation for teacher assignments
+  attendances        StudentAttendance[] // Reverse relation for attendances
+  userAccounts       User[]                     @relation("StudentUser")
+  worksheetAssignments StudentWorksheetAssignment[]
+  worksheetAttempts  StudentWorksheetAttempt[]
+  moduleCompletions  AbacusModuleCompletion[]
+  examAttempts       ExamAttempt[]
+
+  orgUnit OrgUnit? @relation(fields: [orgUnitId], references: [id])
+}
+
+model AbacusEnrollment {
+  id              Int       @id @default(autoincrement())
+  studentId       Int
+  courseId        Int // FK to AbacusCourse
+  currentModuleId Int? // FK to AbacusModule (where the student is currently studying)
+  currentLevelId  Int? // FK to AbacusLevel (specific micro-level)
+  status          String // "ONGOING" | "COMPLETED" | "PAUSED"
+  startDate       DateTime  @default(now())
+  endDate         DateTime?
+  notes           String?
+  orgUnitId       Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  student            Student                    @relation(fields: [studentId], references: [id])
+  course             AbacusCourse               @relation(fields: [courseId], references: [id])
+  currentModule      AbacusModule?              @relation("EnrollmentCurrentModule", fields: [currentModuleId], references: [id])
+  currentLevel       AbacusLevel?               @relation("EnrollmentCurrentLevel", fields: [currentLevelId], references: [id])
+  assessments        AbacusAssessment[]
+  feeRecords         StudentFeeRecord[]
+  orgUnit            OrgUnit?                   @relation(fields: [orgUnitId], references: [id])
+  teacherAssignments TeacherStudentAssignment[] // Reverse relation for teacher assignments
+  attendances        StudentAttendance[] // Reverse relation for attendances
+  worksheetAssignments StudentWorksheetAssignment[]
+  moduleAttempts   ModuleAttempt[]
+  worksheetAttempts WorksheetAttempt[]
+  studentWorksheetAttempts StudentWorksheetAttempt[] @relation("EnrollmentStudentWorksheetAttempts")
+  examAttempts     ExamAttempt[]
+
+  @@index([studentId])
+  @@index([orgUnitId])
+  @@index([courseId])
+}
+
+model OrgUnit {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique // e.g. "SA_ROOT", "CE001"
+  name      String
+  type      String // "SUPERADMIN_ROOT" | "BUSINESS_PARTNER" | "FRANCHISE" | "CENTER"
+  parentId  Int?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent             OrgUnit?                   @relation("OrgUnitParent", fields: [parentId], references: [id])
+  children           OrgUnit[]                  @relation("OrgUnitParent")
+  users              User[]
+  students           Student[]
+  enrollments        AbacusEnrollment[]
+  feeRecords         StudentFeeRecord[]
+  payments           PaymentTransaction[]
+  teacherAssignments TeacherStudentAssignment[] // Reverse relation for teacher assignments
+  classSchedules     AbacusClassSchedule[] // Reverse relation for class schedules
+  attendances        StudentAttendance[] // Reverse relation for attendances
+  auditLogs          AuditLog[] // Reverse relation for audit logs
+  courseLicenses     CourseLicense[] // Reverse relation for course licenses
+  licenseOrders      LicenseOrder[]
+  allocationsGiven   LicenseAllocation[] @relation("ParentOrg")
+  allocationsReceived LicenseAllocation[] @relation("ChildOrg")
+  leads              Lead[]
+}
+
+model AbacusCourse {
+  id          Int                @id @default(autoincrement())
+  code        String             @unique
+  name        String
+  variant     String
+  description String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  modules     AbacusModule[]
+  enrollments AbacusEnrollment[]
+}
+
+model CourseLicense {
+  id         String   @id @default(cuid())
+  orgUnitId  Int
+  orgUnit    OrgUnit  @relation(fields: [orgUnitId], references: [id])
+  courseCode String
+  totalSeats Int
+  usedSeats  Int      @default(0)
+
+  validFrom  DateTime?
+  validTo    DateTime?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([orgUnitId, courseCode])
+}
+
+model LicenseOrder {
+  id             String   @id @default(cuid())
+  buyerOrgUnitId Int
+  courseCode     String
+  seatQuantity   Int
+  unitPrice      Int
+  currency       String   @default("INR")
+  totalPrice     Int
+  status         String   // "PENDING" | "APPROVED" | "PAID" | "CANCELLED"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  buyerOrgUnit OrgUnit @relation(fields: [buyerOrgUnitId], references: [id])
+}
+
+model LicenseAllocation {
+  id              String   @id @default(cuid())
+  parentOrgUnitId Int
+  childOrgUnitId  Int
+  courseCode      String
+  allocatedSeats  Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parentOrgUnit OrgUnit @relation("ParentOrg", fields: [parentOrgUnitId], references: [id])
+  childOrgUnit  OrgUnit @relation("ChildOrg", fields: [childOrgUnitId], references: [id])
+}
+
+model AbacusModule {
+  id                       Int                @id @default(autoincrement())
+  courseId                 Int
+  index                    Int
+  title                    String
+  summary                  String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  skillFocus               String?
+  levels                   AbacusLevel[]
+  course                   AbacusCourse       @relation(fields: [courseId], references: [id])
+  enrollmentsCurrentModule AbacusEnrollment[] @relation("EnrollmentCurrentModule")
+  moduleCompletions        AbacusModuleCompletion[]
+
+  @@unique([courseId, index])
+}
+
+model AbacusLevel {
+  id                      Int                @id @default(autoincrement())
+  moduleCode              String?
+  order                   Int
+  name                    String
+  difficulty              String
+  ageGroup                String?
+  operations              String[]
+  formulas                String[]
+  visualization           String?
+  maxDigits               Int?
+  maxTerms                Int?
+  examDurationMin         Int
+  passingPercent          Int
+  maxMarks                Int?
+  timeBonusEnabled        Boolean            @default(false)
+  scoringRules            Json?
+  notes                   String?
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  moduleId                Int
+  module                  AbacusModule       @relation(fields: [moduleId], references: [id])
+  worksheets              AbacusWorksheet[]
+  enrollmentsCurrentLevel AbacusEnrollment[] @relation("EnrollmentCurrentLevel")
+  assessments             AbacusAssessment[]
+
+  @@unique([moduleId, order], name: "moduleId_order_unique")
+}
+
+model AbacusWorksheet {
+  id             Int         @id @default(autoincrement())
+  levelId        Int
+  title          String
+  kind           String
+  difficultyBand String?
+  questionCount  Int?
+  notes          String?
+  generationMode   WorksheetGenerationMode @default(STATIC)
+  generationConfig Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  level          AbacusLevel @relation(fields: [levelId], references: [id])
+  assignments    StudentWorksheetAssignment[]
+  questions      WorksheetQuestion[]
+  worksheetAttempts StudentWorksheetAttempt[]
+  moduleWorksheetAttempts WorksheetAttempt[] @relation("WorksheetAttemptWorksheet")
+
+  @@index([levelId])
+}
+
+model StudentWorksheetAssignment {
+  id               Int                @id @default(autoincrement())
+  studentId        Int
+  worksheetId      Int
+  enrollmentId     Int?
+  assignedByUserId Int?
+  status           String
+  dueDate          DateTime?
+  submittedAt      DateTime?
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  student     Student           @relation(fields: [studentId], references: [id])
+  worksheet   AbacusWorksheet   @relation(fields: [worksheetId], references: [id])
+  enrollment  AbacusEnrollment? @relation(fields: [enrollmentId], references: [id])
+  assignedBy  User?             @relation("AssignmentAssignedBy", fields: [assignedByUserId], references: [id])
+  attempts    StudentWorksheetAttempt[] @relation("AssignmentAttempts")
+}
+
+model WorksheetQuestion {
+  id            Int              @id @default(autoincrement())
+  worksheet     AbacusWorksheet  @relation(fields: [worksheetId], references: [id])
+  worksheetId   Int
+  orderIndex    Int
+  questionType  String
+  prompt        String
+  imageUrl      String?
+  correctAnswer String
+  correctText   String?
+  correctNum    Float?
+  maxMarks      Int
+  answers       StudentWorksheetAnswer[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  options       WorksheetOption[]
+
+  @@index([worksheetId, orderIndex])
+}
+
+model WorksheetOption {
+  id         Int              @id @default(autoincrement())
+  questionId Int
+  text       String
+  isCorrect  Boolean
+  question   WorksheetQuestion @relation(fields: [questionId], references: [id])
+
+  @@index([questionId])
+}
+
+model StudentWorksheetAttempt {
+  id           Int                        @id @default(autoincrement())
+  student      Student                    @relation(fields: [studentId], references: [id])
+  studentId    Int
+  worksheet    AbacusWorksheet            @relation(fields: [worksheetId], references: [id])
+  worksheetId  Int
+  assignment   StudentWorksheetAssignment? @relation("AssignmentAttempts", fields: [assignmentId], references: [id])
+  assignmentId Int?
+  enrollmentId Int?
+  enrollment   AbacusEnrollment?          @relation("EnrollmentStudentWorksheetAttempts", fields: [enrollmentId], references: [id])
+  status       String
+  startedAt    DateTime
+  submittedAt  DateTime?
+  totalScore   Int?
+  maxScore     Int?
+  autoGraded   Boolean                    @default(false)
+  grader       User?                      @relation("WorksheetAttemptGrader", fields: [graderUserId], references: [id])
+  graderUserId Int?
+  remarks      String?
+  reviewedAt   DateTime?
+  teacherComment String?
+  teacherAdjustedScore Int?
+  answers      StudentWorksheetAnswer[]
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+
+  @@index([studentId, worksheetId, assignmentId])
+  @@index([enrollmentId])
+}
+
+model AbacusModuleCompletion {
+  id          Int      @id @default(autoincrement())
+  student     Student  @relation(fields: [studentId], references: [id])
+  studentId   Int
+  module      AbacusModule @relation(fields: [moduleId], references: [id])
+  moduleId    Int
+  completedAt DateTime @default(now())
+
+  @@unique([studentId, moduleId])
+}
+
+model StudentWorksheetAnswer {
+  id           Int                   @id @default(autoincrement())
+  attempt      StudentWorksheetAttempt @relation(fields: [attemptId], references: [id])
+  attemptId    Int
+  question     WorksheetQuestion     @relation(fields: [questionId], references: [id])
+  questionId   Int
+  answerGiven  String
+  numericAns   Float?
+  textAns      String?
+  optionIds    Int[]                 @default([])
+  isCorrect    Boolean?
+  marksAwarded Int?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@index([attemptId, questionId])
+}
+
+model AbacusAssessment {
+  id           Int      @id @default(autoincrement())
+  enrollmentId Int
+  levelId      Int // FK to AbacusLevel
+  scorePercent Int
+  passed       Boolean
+  attemptDate  DateTime @default(now())
+  remarks      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollment AbacusEnrollment @relation(fields: [enrollmentId], references: [id])
+  level      AbacusLevel      @relation(fields: [levelId], references: [id])
+}
+
+model Exam {
+  id         Int       @id @default(autoincrement())
+  title      String
+  courseCode String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  attempts   ExamAttempt[]
+  questions  ExamQuestion[]
+}
+
+model ExamAttempt {
+  id           Int               @id @default(autoincrement())
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  enrollmentId Int
+  enrollment   AbacusEnrollment  @relation(fields: [enrollmentId], references: [id])
+  studentId    Int
+  student      Student           @relation(fields: [studentId], references: [id])
+
+  examId       Int
+  exam         Exam              @relation(fields: [examId], references: [id])
+
+  status       ExamAttemptStatus @default(NOT_STARTED)
+  startedAt    DateTime?
+  submittedAt  DateTime?
+
+  score        Float?
+  maxScore     Float?
+  feedback     String?
+  gradedAt     DateTime?
+  answers      ExamAnswer[]
+
+  metadata     Json?
+
+  @@index([enrollmentId])
+  @@index([studentId])
+  @@index([examId])
+  @@unique([enrollmentId, examId], name: "enrollmentId_examId")
+}
+
+model ExamQuestion {
+  id         Int          @id @default(autoincrement())
+  examId     Int
+  order      Int
+  type       String // 'MCQ' | 'NUMERIC'
+  text       String
+  imageUrl   String?
+  correctNum Float?
+  exam       Exam         @relation(fields: [examId], references: [id])
+  options    ExamOption[]
+  answers    ExamAnswer[]
+
+  @@index([examId])
+}
+
+model ExamOption {
+  id         Int          @id @default(autoincrement())
+  questionId Int
+  text       String
+  isCorrect  Boolean
+  question   ExamQuestion @relation(fields: [questionId], references: [id])
+
+  @@index([questionId])
+}
+
+model ExamAnswer {
+  id         Int          @id @default(autoincrement())
+  attemptId  Int
+  questionId Int
+  numericAns Float?
+  optionIds  Int[]
+  attempt    ExamAttempt  @relation(fields: [attemptId], references: [id])
+  question   ExamQuestion @relation(fields: [questionId], references: [id])
+
+  @@index([attemptId])
+  @@index([questionId])
+}
+
+model WorksheetAttempt {
+  id           Int                    @id @default(autoincrement())
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  enrollmentId Int
+  enrollment   AbacusEnrollment       @relation(fields: [enrollmentId], references: [id])
+
+  worksheetId  Int
+  worksheet    AbacusWorksheet        @relation("WorksheetAttemptWorksheet", fields: [worksheetId], references: [id])
+
+  status       WorksheetAttemptStatus @default(NOT_STARTED)
+  startedAt    DateTime?
+  completedAt  DateTime?
+
+  score        Float?
+  maxScore     Float?
+  feedback     String?
+  gradedAt     DateTime?
+
+  metadata     Json?
+
+  @@index([enrollmentId])
+  @@index([worksheetId])
+  @@unique([enrollmentId, worksheetId], name: "enrollmentId_worksheetId")
+}
+
+model ModuleAttempt {
+  id           Int                  @id @default(autoincrement())
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  enrollmentId Int
+  enrollment   AbacusEnrollment     @relation(fields: [enrollmentId], references: [id])
+
+  courseCode   String
+  moduleIndex  Int
+
+  status       ModuleAttemptStatus  @default(NOT_STARTED)
+  startedAt    DateTime?
+  completedAt  DateTime?
+
+  score        Float?
+  maxScore     Float?
+
+  metadata     Json?
+
+  @@index([enrollmentId])
+  @@index([courseCode, moduleIndex])
+  @@unique([enrollmentId, courseCode, moduleIndex])
+}
+
+model FeeSetting {
+  id               Int      @id @default(autoincrement())
+  amountPerStudent Int // license fee per student
+  currency         String   @default("INR")
+  updatedAt        DateTime @updatedAt
+}
+
+model StudentFeeRecord {
+  id           Int       @id @default(autoincrement())
+  studentId    Int
+  enrollmentId Int
+  orgUnitId    Int
+  amount       Int
+  status       String // PENDING, PAID
+  createdAt    DateTime  @default(now())
+  paidAt       DateTime?
+
+  student    Student          @relation(fields: [studentId], references: [id])
+  enrollment AbacusEnrollment @relation(fields: [enrollmentId], references: [id])
+  orgUnit    OrgUnit          @relation(fields: [orgUnitId], references: [id])
+
+  @@index([studentId])
+  @@index([orgUnitId])
+  @@index([status])
+}
+
+model PaymentTransaction {
+  id        Int      @id @default(autoincrement())
+  orgUnitId Int
+  amount    Int
+  type      String // CREDIT (center → superadmin)
+  method    String? // UPI, CASH, BANK
+  notes     String?
+  createdAt DateTime @default(now())
+
+  orgUnit OrgUnit? @relation(fields: [orgUnitId], references: [id])
+
+  @@index([orgUnitId])
+  @@index([createdAt])
+}
+
+model Lead {
+  id                  Int        @id @default(autoincrement())
+  firstName           String
+  lastName            String?
+  contactEmail        String?
+  contactPhone        String?
+  source              LeadSource @default(OTHER)
+  stage               LeadStage  @default(NEW)
+  orgUnitId           Int?
+  createdByUserId     Int?
+  assignedToUserId    Int?
+  notes               String?
+  lastStageChangedAt  DateTime?
+  lastStageChangedBy  Int?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  orgUnit      OrgUnit? @relation(fields: [orgUnitId], references: [id])
+  createdBy    User?    @relation("LeadCreatedBy", fields: [createdByUserId], references: [id])
+  assignedTo   User?    @relation("LeadAssignedTo", fields: [assignedToUserId], references: [id])
+  activities   LeadActivity[]
+
+  @@index([orgUnitId])
+  @@index([stage])
+  @@index([createdAt])
+}
+
+model LeadActivity {
+  id         Int        @id @default(autoincrement())
+  leadId     Int
+  actorUserId Int?
+  fromStage  LeadStage?
+  toStage    LeadStage?
+  note       String?
+  createdAt  DateTime   @default(now())
+
+  lead       Lead       @relation(fields: [leadId], references: [id])
+  actor      User?      @relation("LeadActivityActor", fields: [actorUserId], references: [id])
+
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+model AbacusClassSchedule {
+  id            Int     @id @default(autoincrement())
+  orgUnitId     Int
+  courseCode    String
+  dayOfWeek     Int // 0 = Sunday, 1 = Monday, ... 6 = Saturday
+  startTime     String // "17:00" (HH:mm) for now
+  endTime       String // "18:00"
+  teacherUserId Int?
+  room          String?
+  notes         String?
+  isActive      Boolean @default(true)
+
+  orgUnit     OrgUnit             @relation(fields: [orgUnitId], references: [id])
+  teacher     User?               @relation(fields: [teacherUserId], references: [id])
+  attendances StudentAttendance[]
+}
+
+model StudentAttendance {
+  id           Int      @id @default(autoincrement())
+  studentId    Int
+  enrollmentId Int?
+  orgUnitId    Int
+  classDate    DateTime
+  scheduleId   Int?
+  status       String // PRESENT, ABSENT, LATE, EXCUSED
+  remarks      String?
+  recordedById Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  student    Student              @relation(fields: [studentId], references: [id])
+  enrollment AbacusEnrollment?    @relation(fields: [enrollmentId], references: [id])
+  orgUnit    OrgUnit              @relation(fields: [orgUnitId], references: [id])
+  schedule   AbacusClassSchedule? @relation(fields: [scheduleId], references: [id])
+  recordedBy User                 @relation(fields: [recordedById], references: [id])
+
+  @@index([classDate, orgUnitId])
+  @@index([scheduleId, classDate])
+  @@index([studentId])
+  @@index([orgUnitId])
+}
+
+model TeacherStudentAssignment {
+  id            Int      @id @default(autoincrement())
+  teacherUserId Int
+  studentId     Int
+  enrollmentId  Int?
+  orgUnitId     Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  teacher    User              @relation(fields: [teacherUserId], references: [id])
+  student    Student           @relation(fields: [studentId], references: [id])
+  enrollment AbacusEnrollment? @relation(fields: [enrollmentId], references: [id])
+  orgUnit    OrgUnit           @relation(fields: [orgUnitId], references: [id])
+
+  @@unique([teacherUserId, studentId], name: "teacher_student_unique")
+}
+
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  token     String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([token])
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  orgUnitId  Int?
+  action     String
+  entityType String
+  entityId   String?
+  meta       Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user    User?    @relation(fields: [userId], references: [id])
+  orgUnit OrgUnit? @relation(fields: [orgUnitId], references: [id])
+
+  @@index([userId])
+  @@index([orgUnitId])
+  @@index([entityType, entityId])
+}
+
+// Next migration suggestion: add_attempt_feedback_fields

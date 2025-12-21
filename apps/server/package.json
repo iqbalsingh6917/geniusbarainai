@@ -1,0 +1,45 @@
+{
+  "name": "@lms/server",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test:assessments": "set NODE_ENV=test&& vitest run --pool=threads --poolOptions.threads.singleThread=true tests/assessments/examsDelivery.test.ts tests/assessments/worksheetsDelivery.test.ts",
+    "test:licensing-finance": "set NODE_ENV=test&& vitest run --pool=threads --poolOptions.threads.singleThread=true tests/licensing/licensingCapacity.test.ts tests/finance/financeSummary.test.ts",
+    "test:reports": "set NODE_ENV=test&& vitest run --pool=threads --poolOptions.threads.singleThread=true tests/reports/superadminReports.test.ts tests/reports/orgAnalytics.test.ts tests/reports/reportsRoutes.test.ts",
+    "test:sales": "set NODE_ENV=test&& vitest run --pool=threads --poolOptions.threads.singleThread=true tests/sales/salesLeadsRoutes.test.ts",
+    "test:all-core": "pnpm test:assessments && pnpm test:licensing-finance && pnpm test:reports && pnpm test:sales"
+  },
+  "dependencies": {
+    "@lms/db": "workspace:*",
+    "@prisma/client": "^5.0.0",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "csv-writer": "^1.6.0",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.0",
+    "nodemailer": "^7.0.11",
+    "dotenv": "^16.4.5",
+    "pdfkit": "^0.17.2",
+    "zod": "^3.21.4"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/bcryptjs": "^2.4.2",
+    "@types/cors": "^2.8.13",
+    "@types/express": "^4.17.17",
+    "@types/jsonwebtoken": "^9.0.2",
+    "@types/node": "^20.0.0",
+    "@types/nodemailer": "^7.0.4",
+    "@types/pdfkit": "^0.17.4",
+    "@types/supertest": "^6.0.0",
+    "supertest": "^6.3.3",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.6.0"
+  }
+}

@@ -1,0 +1,173 @@
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
+import LoginPage from './pages/LoginPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
+import SuperadminLayout from './layouts/SuperadminLayout';
+import SuperadminDashboard from './pages/SuperadminDashboardReal';
+import AbacusCourseStudio from './pages/AbacusCourseStudio';
+import SuperadminAbacusBuilder from './pages/SuperadminAbacusBuilder';
+import AbacusStudents from './pages/AbacusStudents';
+import AbacusStudentDetail from './pages/AbacusStudentDetail';
+import AbacusEnrollments from './pages/AbacusEnrollments';
+import AbacusEnrollmentDetail from './pages/AbacusEnrollmentDetail';
+import BusinessPartnerLayout from './layouts/BusinessPartnerLayout';
+import BusinessPartnerDashboard from './pages/BusinessPartnerDashboardReal';
+import FranchiseLayout from './layouts/FranchiseLayout';
+import FranchiseDashboard from './pages/FranchiseDashboardReal';
+import CenterLayout from './layouts/CenterLayout';
+import CenterDashboard from './pages/CenterDashboardReal';
+import TeacherLayout from './layouts/TeacherLayout';
+import TeacherDashboard from './pages/TeacherDashboardReal';
+import FinanceSettings from './pages/FinanceSettings';
+import FinanceDues from './pages/FinanceDues';
+import FinanceTransactions from './pages/FinanceTransactions';
+import CenterFinance from './pages/CenterFinance';
+import TestPage from './pages/TestPage';
+import SimpleFinanceSettings from './pages/SimpleFinanceSettings';
+import SuperadminOrgUnits from './pages/SuperadminOrgUnits';
+import SuperadminUsers from './pages/SuperadminUsers';
+import SuperadminReports from './pages/SuperadminReports';
+import CenterTeacherAssignments from './pages/CenterTeacherAssignments';
+import CenterSchedule from './pages/CenterSchedule';
+import CenterAttendance from './pages/CenterAttendance';
+import TeacherMyStudents from './pages/TeacherMyStudents';
+import TeacherMyEnrollments from './pages/TeacherMyEnrollments';
+import TeacherCurriculum from './pages/TeacherCurriculum';
+import TeacherSchedule from './pages/TeacherSchedule';
+import TeacherAttendance from './pages/TeacherAttendance';
+import TeacherEnrollmentDetail from './pages/TeacherEnrollmentDetail';
+import StudentDashboardPage from './pages/StudentDashboardPage';
+import StudentLayout from './layouts/StudentLayout';
+import StudentCoursesPage from './pages/StudentCoursesPage';
+import StudentWorksheetsPage from './pages/StudentWorksheetsPage';
+import StudentWorksheetAttemptPage from './pages/StudentWorksheetAttemptPage';
+import StudentWorksheetHistoryPage from './pages/StudentWorksheetHistoryPage';
+import StudentWorksheetPlayer from './pages/StudentWorksheetPlayer';
+import StudentExamPlayer from './pages/StudentExamPlayer';
+import TeacherExamAttemptsPage from './pages/TeacherExamAttemptsPage';
+import TeacherExamAttemptDetailPage from './pages/TeacherExamAttemptDetailPage';
+import TeacherWorksheetAttemptReviewPage from './pages/TeacherWorksheetAttemptReviewPage';
+import TeacherWorksheetHistoryPage from './pages/TeacherWorksheetHistoryPage';
+import StudentExamsPage from './pages/StudentExamsPage';
+import SuperadminLicensing from './pages/SuperadminLicensing';
+import SuperadminActivity from './pages/SuperadminActivity';
+import SuperadminLicenseOrders from './pages/SuperadminLicenseOrders';
+import SuperadminAllocations from './pages/SuperadminAllocations';
+import SuperadminCommercialHistory from './pages/SuperadminCommercialHistory';
+import SuperadminSalesConsole from './pages/SuperadminSalesConsole';
+import BpLeadsPage from './pages/BpLeadsPage';
+import FranchiseLeadsPage from './pages/FranchiseLeadsPage';
+import CenterLeadsPage from './pages/CenterLeadsPage';
+import CertificateVerifyPage from './pages/CertificateVerifyPage';
+
+function App() {
+  return (
+    <AuthProvider>
+      <ToastProvider>
+        <Router>
+          <Routes>
+            <Route path="/" element={<Navigate to="/login" replace />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+            <Route path="/certificate/:number" element={<CertificateVerifyPage />} />
+            
+            {/* Superadmin routes */}
+            <Route path="/superadmin" element={<SuperadminLayout />}>
+            <Route index element={<SuperadminDashboard />} />
+            <Route path="dashboard" element={<SuperadminDashboard />} />
+            <Route path="abacus-course-studio" element={<AbacusCourseStudio />} />
+            <Route path="abacus-builder" element={<SuperadminAbacusBuilder />} />
+            <Route path="abacus-students" element={<AbacusStudents />} />
+            <Route path="abacus-students/:id" element={<AbacusStudentDetail />} />
+            <Route path="abacus-enrollments" element={<AbacusEnrollments />} />
+            <Route path="abacus-enrollments/:id" element={<AbacusEnrollmentDetail />} />
+            <Route path="finance-settings" element={<FinanceSettings />} />
+            <Route path="finance-dues" element={<FinanceDues />} />
+            <Route path="finance-transactions" element={<FinanceTransactions />} />
+            <Route path="licensing" element={<SuperadminLicensing />} />
+            <Route path="license-orders" element={<SuperadminLicenseOrders />} />
+            <Route path="licensing/allocations" element={<SuperadminAllocations />} />
+            <Route path="commercial-history" element={<SuperadminCommercialHistory />} />
+            <Route path="sales" element={<SuperadminSalesConsole />} />
+            <Route path="activity" element={<SuperadminActivity />} />
+            <Route path="org-management" element={<SuperadminOrgUnits />} />
+            <Route path="users" element={<SuperadminUsers />} />
+            <Route path="reports" element={<SuperadminReports />} />
+            <Route path="test" element={<TestPage />} />
+            <Route path="simple-finance-settings" element={<SimpleFinanceSettings />} />
+            <Route path="student-dashboard/:studentId" element={<StudentDashboardPage />} />
+          </Route>
+          
+          {/* Business Partner routes */}
+          <Route path="/business-partner" element={<BusinessPartnerLayout />}>
+            <Route index element={<BusinessPartnerDashboard />} />
+            <Route path="dashboard" element={<BusinessPartnerDashboard />} />
+            <Route path="leads" element={<BpLeadsPage />} />
+          </Route>
+          
+          {/* Franchise routes */}
+          <Route path="/franchise" element={<FranchiseLayout />}>
+            <Route index element={<FranchiseDashboard />} />
+            <Route path="dashboard" element={<FranchiseDashboard />} />
+            <Route path="leads" element={<FranchiseLeadsPage />} />
+          </Route>
+          
+          {/* Center routes */}
+          <Route path="/center" element={<CenterLayout />}>
+            <Route index element={<CenterDashboard />} />
+            <Route path="dashboard" element={<CenterDashboard />} />
+            <Route path="leads" element={<CenterLeadsPage />} />
+            <Route path="students" element={<AbacusStudents />} />
+            <Route path="enrollments" element={<AbacusEnrollments />} />
+            <Route path="teacher-assignments" element={<CenterTeacherAssignments />} />
+            <Route path="schedule" element={<CenterSchedule />} />
+            <Route path="attendance" element={<CenterAttendance />} />
+            <Route path="finance" element={<CenterFinance />} />
+            <Route path="students/:studentId/dashboard" element={<StudentDashboardPage />} />
+          </Route>
+          
+          {/* Teacher routes */}
+          <Route path="/teacher" element={<TeacherLayout />}>
+            <Route index element={<TeacherDashboard />} />
+            <Route path="dashboard" element={<TeacherDashboard />} />
+            <Route path="my-students" element={<TeacherMyStudents />} />
+            <Route path="my-enrollments" element={<TeacherMyEnrollments />} />
+            <Route path="enrollments/:enrollmentId" element={<TeacherEnrollmentDetail />} />
+            <Route path="curriculum" element={<TeacherCurriculum />} />
+            <Route path="schedule" element={<TeacherSchedule />} />
+            <Route path="attendance" element={<TeacherAttendance />} />
+            <Route path="worksheet-attempts" element={<TeacherWorksheetHistoryPage />} />
+            <Route path="exams/attempts" element={<TeacherExamAttemptsPage />} />
+            <Route path="exams/attempts/:attemptId" element={<TeacherExamAttemptDetailPage />} />
+            <Route
+              path="worksheets/review/attempts/:attemptId"
+              element={<TeacherWorksheetAttemptReviewPage />}
+            />
+            <Route path="students/:studentId/dashboard" element={<StudentDashboardPage />} />
+          </Route>
+
+          {/* Student routes */}
+          <Route path="/student" element={<StudentLayout />}>
+            <Route path="dashboard" element={<StudentDashboardPage />} />
+            <Route path="courses" element={<StudentCoursesPage />} />
+            <Route path="worksheets" element={<StudentWorksheetsPage />} />
+            <Route path="exams" element={<StudentExamsPage />} />
+            <Route path="exams/:examId/play" element={<StudentExamPlayer />} />
+            <Route path="exam-attempts/:attemptId/play" element={<StudentExamPlayer />} />
+            <Route path="worksheets/:worksheetId/play" element={<StudentWorksheetPlayer />} />
+            <Route path="worksheet-attempts/:attemptId/play" element={<StudentWorksheetPlayer />} />
+            <Route path="worksheet-attempts/:attemptId" element={<StudentWorksheetAttemptPage />} />
+            <Route path="worksheets/attempt/:attemptId" element={<StudentWorksheetAttemptPage />} />
+            <Route path="attempts" element={<StudentWorksheetHistoryPage />} />
+          </Route>
+        </Routes>
+      </Router>
+      </ToastProvider>
+    </AuthProvider>
+  );
+}
+
+export default App;
