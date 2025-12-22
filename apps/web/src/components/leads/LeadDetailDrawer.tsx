@@ -13,7 +13,6 @@ type LeadDetailDrawerProps = {
   onAssign: (assignedToUserId: number | null) => Promise<void>;
 };
 
-const STAGES: LeadStage[] = ['NEW', 'CONTACTED', 'TRIAL_BOOKED', 'TRIAL_DONE', 'CONVERTED', 'LOST'];
 const SOURCES: LeadSource[] = ['CAMPAIGN', 'REFERRAL', 'WALK_IN', 'WHATSAPP', 'OTHER', 'ONLINE', 'SCHOOL'];
 const STAGE_LABELS: Record<LeadStage, string> = {
   NEW: 'New',
