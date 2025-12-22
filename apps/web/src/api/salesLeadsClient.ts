@@ -2,6 +2,7 @@ import { apiClient } from '../utils/apiClient';
 
 export type LeadStage = 'NEW' | 'CONTACTED' | 'TRIAL_BOOKED' | 'TRIAL_DONE' | 'CONVERTED' | 'LOST';
 export type LeadSource = 'CAMPAIGN' | 'REFERRAL' | 'WALK_IN' | 'WHATSAPP' | 'OTHER' | 'ONLINE' | 'SCHOOL';
+export type LeadAssistTier = 'HOT' | 'WARM' | 'COLD';
 
 export interface LeadSummary {
   totalLeads: number;
@@ -65,6 +66,24 @@ export interface LeadActivity {
 
 export interface LeadDetail extends LeadListItem {
   activities?: LeadActivity[];
+}
+
+export interface LeadAssistResult {
+  score: number;
+  tier: LeadAssistTier;
+  reasons: string[];
+  nextAction: string;
+  suggestedMessage: string;
+}
+
+export interface LeadAssistSummaryItem {
+  id: number;
+  stage?: LeadStage | null;
+  nextFollowUpAt?: string | null;
+  score: number;
+  tier: LeadAssistTier;
+  topReason?: string | null;
+  reasons?: string[];
 }
 
 export type LeadListFilters = {
@@ -132,5 +151,34 @@ export async function fetchLead(id: number): Promise<LeadDetail> {
 
 export async function assignLead(id: number, assignedToUserId: number | null): Promise<LeadListItem> {
   const res = await apiClient.post(`/api/leads/${id}/assign`, { assignedToUserId });
+  return res;
+}
+
+export async function fetchLeadAssist(id: number): Promise<LeadAssistResult> {
+  const res = await apiClient.get(`/api/leads/${id}/assist`);
+  return res;
+}
+
+export async function listLeadAssistSummary(filters: LeadListFilters = {}): Promise<{
+  items: LeadAssistSummaryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  limit?: number;
+  offset?: number;
+}> {
+  const params = new URLSearchParams();
+  if (filters.stage) params.set('stage', filters.stage);
+  if (filters.assignedTo !== undefined) params.set('assignedTo', String(filters.assignedTo));
+  if (filters.q) params.set('q', filters.q);
+  if (filters.from) params.set('from', filters.from);
+  if (filters.to) params.set('to', filters.to);
+  if (filters.limit) params.set('limit', String(filters.limit));
+  if (filters.offset !== undefined) params.set('offset', String(filters.offset));
+  if (filters.page) params.set('page', String(filters.page));
+  if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+
+  const query = params.toString();
+  const res = await apiClient.get(`/api/leads/assist/summary${query ? `?${query}` : ''}`);
   return res;
 }

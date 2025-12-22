@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LeadDetail, LeadListFilters, LeadListItem, LeadPayload, LeadStage, LeadSummary } from '../../api/salesLeadsClient';
+import {
+  LeadAssistResult,
+  LeadAssistSummaryItem,
+  LeadDetail,
+  LeadListFilters,
+  LeadListItem,
+  LeadPayload,
+  LeadStage,
+  LeadSummary,
+} from '../../api/salesLeadsClient';
 import LeadDetailDrawer from './LeadDetailDrawer';
 import Skeleton from '../ui/Skeleton';
 import { useToast } from '../../contexts/ToastContext';
@@ -32,6 +41,12 @@ const getStageOptions = (current: LeadStage) => {
   return options;
 };
 
+const tierClasses: Record<'HOT' | 'WARM' | 'COLD', string> = {
+  HOT: 'text-red-600',
+  WARM: 'text-yellow-600',
+  COLD: 'text-gray-500',
+};
+
 type LeadsPageBaseProps = {
   title: string;
   summaryLoader: () => Promise<LeadSummary>;
@@ -41,7 +56,14 @@ type LeadsPageBaseProps = {
     page: number;
     pageSize: number;
   }>;
+  assistLoader: (filters?: LeadListFilters) => Promise<{
+    items: LeadAssistSummaryItem[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>;
   fetchLead: (id: number) => Promise<LeadDetail>;
+  fetchLeadAssist: (id: number) => Promise<LeadAssistResult>;
   createLead: (payload: LeadPayload) => Promise<LeadListItem>;
   updateLead: (id: number, payload: Partial<LeadPayload>) => Promise<LeadListItem>;
   updateStage: (id: number, payload: { stage: LeadStage; lostReason?: string }) => Promise<LeadListItem>;
@@ -52,7 +74,9 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   title,
   summaryLoader,
   listLoader,
+  assistLoader,
   fetchLead,
+  fetchLeadAssist,
   createLead,
   updateLead,
   updateStage,
@@ -63,6 +87,8 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   const [searchParams, setSearchParams] = useSearchParams();
   const [summary, setSummary] = useState<LeadSummary | null>(null);
   const [leads, setLeads] = useState<LeadListItem[]>([]);
+  const [assistMap, setAssistMap] = useState<Record<number, LeadAssistSummaryItem>>({});
+  const [assistLoading, setAssistLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +102,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   const [total, setTotal] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<LeadDetail | null>(null);
+  const [selectedAssist, setSelectedAssist] = useState<LeadAssistResult | null>(null);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<LeadPayload>({ firstName: '', stage: 'NEW', lostReason: '' });
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
@@ -107,6 +134,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   const loadList = async () => {
     try {
       setLoading(true);
+      setAssistLoading(true);
       const filters: LeadListFilters = {
         stage: stageFilter ? (stageFilter as LeadStage) : undefined,
         assignedTo: assignedFilter === 'all' ? undefined : assignedFilter,
@@ -119,12 +147,24 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       const listRes = await listLoader(filters);
       setLeads(listRes.items);
       setTotal(listRes.total);
+      try {
+        const assistRes = await assistLoader(filters);
+        const map: Record<number, LeadAssistSummaryItem> = {};
+        assistRes.items.forEach((item) => {
+          map[item.id] = item;
+        });
+        setAssistMap(map);
+      } catch (assistErr) {
+        console.error('Failed to load lead assist summary', assistErr);
+        setAssistMap({});
+      }
       setError(null);
     } catch (err: any) {
       console.error('Failed to load leads', err);
       setError(parseErrorMessage(err, 'Failed to load leads. Please try again.'));
     } finally {
       setLoading(false);
+      setAssistLoading(false);
     }
   };
 
@@ -139,9 +179,11 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   const openDrawer = async (lead: LeadListItem) => {
     setSelectedLead(lead);
     setDrawerOpen(true);
+    setSelectedAssist(null);
     try {
-      const detail = await fetchLead(lead.id);
+      const [detail, assist] = await Promise.all([fetchLead(lead.id), fetchLeadAssist(lead.id)]);
       setSelectedLead(detail);
+      setSelectedAssist(assist);
     } catch (err) {
       handleErrorToast(err, showToast, 'Could not load lead details');
     }
@@ -153,6 +195,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       const updated = await updateLead(selectedLead.id, payload);
       setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
       setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+      await refreshAssistForLead(updated.id);
       await refreshSummary();
       showToast('Lead updated', 'success');
     } catch (err) {
@@ -177,6 +220,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       const updated = await updateStage(targetId, { stage, lostReason });
       setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
       setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+      await refreshAssistForLead(updated.id);
       await refreshSummary();
       showToast(`Stage set to ${STAGE_LABELS[stage]}`, 'success');
     } catch (err) {
@@ -191,6 +235,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       const updated = await assignLead(leadId, user.id);
       setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
       setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+      await refreshAssistForLead(updated.id);
       showToast('Lead assigned', 'success');
     } catch (err) {
       handleErrorToast(err, showToast, 'Could not assign lead');
@@ -203,6 +248,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       const updated = await assignLead(selectedLead.id, assignedToUserId);
       setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
       setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+      await refreshAssistForLead(updated.id);
     } catch (err) {
       handleErrorToast(err, showToast, 'Could not update assignment');
     }
@@ -247,6 +293,38 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
     if (!lead.assignedToUserId) return 'Unassigned';
     if (lead.assignedToUserId === user?.id) return 'Me';
     return `User #${lead.assignedToUserId}`;
+  };
+
+  const refreshAssistForLead = async (leadId: number) => {
+    try {
+      const assist = await fetchLeadAssist(leadId);
+      if (selectedLead?.id === leadId) {
+        setSelectedAssist(assist);
+      }
+      setAssistMap((prev) => {
+        const existing = prev[leadId];
+        return {
+          ...prev,
+          [leadId]: {
+            id: leadId,
+            stage: existing?.stage,
+            nextFollowUpAt: existing?.nextFollowUpAt,
+            score: assist.score,
+            tier: assist.tier,
+            topReason: assist.reasons[0] ?? null,
+            reasons: assist.reasons.slice(0, 2),
+          },
+        };
+      });
+    } catch (err) {
+      handleErrorToast(err, showToast, 'Could not refresh AI assist');
+    }
+  };
+
+  const getAssistReasons = (item?: LeadAssistSummaryItem) => {
+    if (!item) return [];
+    const reasons = item.reasons && item.reasons.length ? item.reasons : item.topReason ? [item.topReason] : [];
+    return reasons.slice(0, 2);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -360,6 +438,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
                 <th className="px-3 py-2">Name</th>
                 <th className="px-3 py-2">Phone</th>
                 <th className="px-3 py-2">Stage</th>
+                <th className="px-3 py-2">AI</th>
                 <th className="px-3 py-2">Assigned</th>
                 <th className="px-3 py-2">Next Follow-up</th>
                 <th className="px-3 py-2">Updated</th>
@@ -369,7 +448,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
             <tbody>
               {leads.length === 0 && (
                 <tr>
-                  <td className="px-3 py-4 text-sm text-gray-500" colSpan={7}>
+                  <td className="px-3 py-4 text-sm text-gray-500" colSpan={8}>
                     No leads match your filters. Adjust filters or add a new lead.
                   </td>
                 </tr>
@@ -384,6 +463,27 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
                     <div className="text-xs text-gray-500">{lead.contactEmail || ''}</div>
                   </td>
                   <td className="px-3 py-2">{lead.stage ? STAGE_LABELS[lead.stage] : 'New'}</td>
+                  <td className="px-3 py-2">
+                    {assistLoading ? (
+                      <span className="text-xs text-gray-400">Loading...</span>
+                    ) : (
+                      (() => {
+                        const assist = assistMap[lead.id];
+                        if (!assist) return <span className="text-xs text-gray-400">-</span>;
+                        const reasons = getAssistReasons(assist);
+                        return (
+                          <div>
+                            <div className={`text-xs font-semibold ${tierClasses[assist.tier]}`}>
+                              {assist.tier} {assist.score}
+                            </div>
+                            {reasons.length > 0 && (
+                              <div className="text-[11px] text-gray-500">{reasons.join(' / ')}</div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    )}
+                  </td>
                   <td className="px-3 py-2">{formatAssignedLabel(lead)}</td>
                   <td className="px-3 py-2">
                     {lead.nextFollowUpAt ? new Date(lead.nextFollowUpAt).toLocaleDateString() : '-'}
@@ -451,6 +551,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
 
       <LeadDetailDrawer
         lead={selectedLead}
+        assist={selectedAssist}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onSave={handleSave}

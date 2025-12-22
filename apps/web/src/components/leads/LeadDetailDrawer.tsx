@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { LeadDetail, LeadPayload, LeadStage, LeadSource } from '../../api/salesLeadsClient';
+import { LeadAssistResult, LeadDetail, LeadPayload, LeadStage, LeadSource } from '../../api/salesLeadsClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { handleErrorToast } from '../../utils/errorHandling';
 
 type LeadDetailDrawerProps = {
   lead?: LeadDetail | null;
+  assist?: LeadAssistResult | null;
   open: boolean;
   onClose: () => void;
   onSave: (data: Partial<LeadPayload>) => Promise<void>;
@@ -23,6 +24,11 @@ const STAGE_LABELS: Record<LeadStage, string> = {
   LOST: 'Lost',
 };
 const STAGE_FLOW: LeadStage[] = ['NEW', 'CONTACTED', 'TRIAL_BOOKED', 'TRIAL_DONE', 'CONVERTED'];
+const tierClasses: Record<'HOT' | 'WARM' | 'COLD', string> = {
+  HOT: 'text-red-600',
+  WARM: 'text-yellow-600',
+  COLD: 'text-gray-500',
+};
 
 const getNextStage = (current: LeadStage) => {
   const idx = STAGE_FLOW.indexOf(current);
@@ -53,13 +59,14 @@ const toDateTimeLocal = (value?: string | null) => {
   return date.toISOString().slice(0, 16);
 };
 
-const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({ lead, open, onClose, onSave, onStageChange, onAssign }) => {
+const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({ lead, assist, open, onClose, onSave, onStageChange, onAssign }) => {
   const { user } = useAuth();
   const { showToast } = useToast();
   const [form, setForm] = useState<Partial<LeadPayload>>({});
   const [saving, setSaving] = useState(false);
   const [stageUpdating, setStageUpdating] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [assistMessage, setAssistMessage] = useState('');
 
   useEffect(() => {
     if (lead) {
@@ -77,6 +84,10 @@ const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({ lead, open, onClose
       });
     }
   }, [lead]);
+
+  useEffect(() => {
+    setAssistMessage(assist?.suggestedMessage || '');
+  }, [assist]);
 
   if (!open) return null;
 
@@ -254,6 +265,41 @@ const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({ lead, open, onClose
               />
             </div>
           )}
+          <div className="border-t pt-3">
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">AI Assist</h3>
+            {assist ? (
+              <div className="space-y-2 text-sm text-gray-600">
+                <div>
+                  <span className={`font-semibold ${tierClasses[assist.tier]}`}>
+                    {assist.tier} {assist.score}
+                  </span>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Reasons</div>
+                  <ul className="list-disc list-inside">
+                    {assist.reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Suggested next action</div>
+                  <div className="font-medium">{assist.nextAction}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Suggested message</div>
+                  <textarea
+                    className="form-control mt-1"
+                    rows={3}
+                    value={assistMessage}
+                    onChange={(e) => setAssistMessage(e.target.value)}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">AI assist not available.</p>
+            )}
+          </div>
           <div>
             <label className="text-sm text-gray-600">Notes</label>
             <textarea

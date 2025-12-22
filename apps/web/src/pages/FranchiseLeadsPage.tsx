@@ -4,7 +4,9 @@ import {
   assignLead,
   createLead,
   fetchLead,
+  fetchLeadAssist,
   fetchLeadSummary,
+  listLeadAssistSummary,
   listLeads,
   updateLead,
   updateLeadStage,
@@ -16,7 +18,9 @@ const FranchiseLeadsPage: React.FC = () => {
       title="Leads (Franchise)"
       summaryLoader={() => fetchLeadSummary('franchise')}
       listLoader={listLeads}
+      assistLoader={listLeadAssistSummary}
       fetchLead={fetchLead}
+      fetchLeadAssist={fetchLeadAssist}
       createLead={createLead}
       updateLead={updateLead}
       updateStage={(id, payload) => updateLeadStage(id, payload)}
