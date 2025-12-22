@@ -7,6 +7,7 @@ import { authRequired, superadminOnly } from './middleware/auth';
 import { rateLimiter } from './middleware/rateLimit';
 import { errorHandler } from './middleware/errorHandler';
 import { requestIdMiddleware, requestTimingMiddleware } from './middleware/requestLogging';
+import { getRequestContext, incrementQueryCount, incrementSlowQueryCount } from './utils/requestContext';
 
 // Import routes
 import authRoutes from './routes/auth';
@@ -71,21 +72,24 @@ export function createApp() {
   app.use(requestIdMiddleware);
   app.use(requestTimingMiddleware);
 
-  if (!isTestEnv && slowQueryThresholdMs > 0) {
-    prisma.$use(async (params, next) => {
-      const start = Date.now();
-      const result = await next(params);
-      const durationMs = Date.now() - start;
-      if (durationMs >= slowQueryThresholdMs) {
-        logger.warn('slow_query', {
-          model: params.model ?? 'raw',
-          action: params.action,
-          duration_ms: durationMs,
-        });
-      }
-      return result;
-    });
-  }
+  prisma.$use(async (params, next) => {
+    const start = Date.now();
+    const result = await next(params);
+    const durationMs = Date.now() - start;
+    incrementQueryCount();
+    if (!isTestEnv && slowQueryThresholdMs > 0 && durationMs >= slowQueryThresholdMs) {
+      incrementSlowQueryCount();
+      const context = getRequestContext();
+      logger.warn('slow_query', {
+        model: params.model ?? 'raw',
+        action: params.action,
+        duration_ms: durationMs,
+        requestId: context?.requestId ?? null,
+        label: context?.label ?? null,
+      });
+    }
+    return result;
+  });
 
   if (isTestEnv) {
     app.use((req, _res, next) => {

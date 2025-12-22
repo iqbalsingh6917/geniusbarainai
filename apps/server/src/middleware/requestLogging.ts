@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import crypto from 'crypto';
 import logger from '../utils/logger';
+import { getRequestContext, runWithRequestContext } from '../utils/requestContext';
 
 function generateRequestId() {
   if (typeof crypto.randomUUID === 'function') {
@@ -15,7 +16,7 @@ export function requestIdMiddleware(req: Request, res: Response, next: NextFunct
   (req as any).requestId = requestId;
   res.locals.requestId = requestId;
   res.setHeader('x-request-id', requestId);
-  next();
+  runWithRequestContext(requestId, () => next());
 }
 
 export function requestTimingMiddleware(req: Request, res: Response, next: NextFunction) {
@@ -25,12 +26,15 @@ export function requestTimingMiddleware(req: Request, res: Response, next: NextF
     const rawPath = req.route?.path ? `${req.baseUrl}${req.route.path}` : req.baseUrl || req.path;
     const path = rawPath.replace(/\/\d+(?=\/|$)/g, '/:id');
     const user = (req as any).user;
+    const context = getRequestContext();
     logger.info('request', {
       requestId: res.locals.requestId,
       method: req.method,
       path,
       status: res.statusCode,
       duration_ms: Math.round(durationMs),
+      queryCount: context?.counts.queryCount ?? 0,
+      slowQueryCount: context?.counts.slowQueryCount ?? 0,
       role: user?.role ?? null,
       orgUnitId: user?.orgUnitId ?? null,
     });

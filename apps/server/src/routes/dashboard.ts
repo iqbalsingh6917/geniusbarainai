@@ -1,10 +1,11 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../prismaClient';
 import { authRequired, superadminOnly, AuthRequest } from '../middleware/auth';
 import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
 import { isBusinessPartner, isFranchise, isCenterManager, isAdmissions, isTeacher } from '../constants/roles';
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
+import { withQueryLabel } from '../utils/requestContext';
 import { z } from 'zod';
 import { 
   superadminDashboardSchema, 
@@ -15,8 +16,6 @@ import {
 } from '../schemas/dashboardSchema';
 
 const router = Router();
-const prisma = new PrismaClient();
-
 // Helper function to get org unit details
 const getOrgUnitDetails = async (orgUnitId: number) => {
   const orgUnit: any = await prisma.$queryRaw`
@@ -44,9 +43,6 @@ router.get('/superadmin', authRequired, superadminOnly, async (req: AuthRequest,
         (SELECT COUNT(*) FROM "OrgUnit" WHERE "type" = 'FRANCHISE') as totalFranchises
     `;
     
-    const totalsResult: any = await prisma.$queryRawUnsafe(totalsQuery);
-    const totals = totalsResult[0];
-    
     // Get Abacus curriculum stats
     const abacusQuery = `
       SELECT 
@@ -54,20 +50,12 @@ router.get('/superadmin', authRequired, superadminOnly, async (req: AuthRequest,
         (SELECT COUNT(*) FROM "AbacusModule") as totalModules,
         (SELECT COUNT(*) FROM "AbacusLevel") as totalLevels
     `;
-    
-    const abacusResult: any = await prisma.$queryRawUnsafe(abacusQuery);
-    const abacus = abacusResult[0];
-    
     // Get activity stats (last 30 days)
     const activityQuery = `
       SELECT 
         (SELECT COUNT(*) FROM "AbacusEnrollment" WHERE "createdAt" >= NOW() - INTERVAL '30 days') as enrollmentsLast30Days,
         (SELECT COUNT(*) FROM "AbacusAssessment" WHERE "attemptDate" >= NOW() - INTERVAL '30 days') as assessmentsLast30Days
     `;
-    
-    const activityResult: any = await prisma.$queryRawUnsafe(activityQuery);
-    const activity = activityResult[0];
-    
     // Get per-course summary
     const perCourseQuery = `
       SELECT 
@@ -90,16 +78,23 @@ router.get('/superadmin', authRequired, superadminOnly, async (req: AuthRequest,
     // Get finance summary
     const financeQuery = `
       SELECT 
-        COALESCE(SUM(CASE WHEN sfr."status" = 'PENDING' THEN sfr."amount" ELSE 0 END), 0) as "totalDues",
+        COALESCE(SUM(CASE WHEN sfr."status" IN ('PENDING','PARTIAL') THEN sfr."amount" ELSE 0 END), 0) as "totalDues",
         COALESCE(SUM(CASE WHEN pt."type" = 'CREDIT' THEN pt."amount" ELSE 0 END), 0) as "totalCollected"
       FROM "StudentFeeRecord" sfr
       FULL OUTER JOIN "PaymentTransaction" pt ON TRUE
     `;
-    
-    const perCourse: any = await prisma.$queryRawUnsafe(perCourseQuery);
-    
-    // Get finance summary
-    const financeResult: any = await prisma.$queryRawUnsafe(financeQuery);
+
+    const [totalsResult, abacusResult, activityResult, perCourse, financeResult]: any = await Promise.all([
+      withQueryLabel('sa_dashboard_totals', () => prisma.$queryRawUnsafe(totalsQuery)),
+      withQueryLabel('sa_dashboard_abacus', () => prisma.$queryRawUnsafe(abacusQuery)),
+      withQueryLabel('sa_dashboard_activity', () => prisma.$queryRawUnsafe(activityQuery)),
+      withQueryLabel('sa_dashboard_per_course', () => prisma.$queryRawUnsafe(perCourseQuery)),
+      withQueryLabel('sa_dashboard_finance', () => prisma.$queryRawUnsafe(financeQuery)),
+    ]);
+
+    const totals = totalsResult[0];
+    const abacus = abacusResult[0];
+    const activity = activityResult[0];
     const finance = financeResult[0];
     
     // Convert BigInt to Number for all count fields
@@ -165,11 +160,11 @@ router.get('/business-partner', authRequired, async (req: AuthRequest, res: Resp
       return fail(res, 400, 'VALIDATION_ERROR', 'User not associated with an organization unit');
     }
     
-    // Get allowed org units for the BP
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId);
-    
-    // Get BP org unit details
-    const bpOrgUnit = await getOrgUnitDetails(req.user.orgUnitId);
+    // Get allowed org units for the BP and org unit details
+    const [allowedOrgUnits, bpOrgUnit] = await Promise.all([
+      getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId),
+      getOrgUnitDetails(req.user.orgUnitId),
+    ]);
     
     if (!bpOrgUnit) {
       return fail(res, 404, 'NOT_FOUND', 'Business Partner organization unit not found');
@@ -184,9 +179,6 @@ router.get('/business-partner', authRequired, async (req: AuthRequest, res: Resp
         )) as centersCount
     `;
     
-    const orgResult: any = await prisma.$queryRawUnsafe(orgQuery, req.user.orgUnitId);
-    const org = orgResult[0];
-    
     // Get totals for students and active enrollments in BP hierarchy
     const totalsQuery = `
       SELECT 
@@ -196,9 +188,6 @@ router.get('/business-partner', authRequired, async (req: AuthRequest, res: Resp
       LEFT JOIN "AbacusEnrollment" e ON s."id" = e."studentId" AND e."status" = 'ONGOING'
       WHERE s."orgUnitId" = ANY($1)
     `;
-    
-    const totalsResult: any = await prisma.$queryRawUnsafe(totalsQuery, allowedOrgUnits);
-    const totals = totalsResult[0];
     
     // Get per-center data
     const perCenterQuery = `
@@ -215,7 +204,14 @@ router.get('/business-partner', authRequired, async (req: AuthRequest, res: Resp
       ORDER BY o."code"
     `;
     
-    const perCenter: any = await prisma.$queryRawUnsafe(perCenterQuery, allowedOrgUnits);
+    const [orgResult, totalsResult, perCenter]: any = await Promise.all([
+      prisma.$queryRawUnsafe(orgQuery, req.user.orgUnitId),
+      prisma.$queryRawUnsafe(totalsQuery, allowedOrgUnits),
+      prisma.$queryRawUnsafe(perCenterQuery, allowedOrgUnits),
+    ]);
+
+    const org = orgResult[0];
+    const totals = totalsResult[0];
     
     // Convert BigInt to Number for all count fields
     const formattedPerCenter = perCenter.map((center: any) => ({
@@ -271,8 +267,11 @@ router.get('/franchise', authRequired, async (req: AuthRequest, res: Response) =
       return fail(res, 400, 'VALIDATION_ERROR', 'User not associated with an organization unit');
     }
     
-    // Get franchise org unit details
-    const franchiseOrgUnit = await getOrgUnitDetails(req.user.orgUnitId);
+    // Get franchise org unit details and allowed org units
+    const [franchiseOrgUnit, allowedOrgUnits] = await Promise.all([
+      getOrgUnitDetails(req.user.orgUnitId),
+      getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId),
+    ]);
     
     if (!franchiseOrgUnit) {
       return fail(res, 404, 'NOT_FOUND', 'Franchise organization unit not found');
@@ -285,11 +284,7 @@ router.get('/franchise', authRequired, async (req: AuthRequest, res: Response) =
       WHERE "type" = 'CENTER' AND "parentId" = $1
     `;
     
-    const orgResult: any = await prisma.$queryRawUnsafe(orgQuery, req.user.orgUnitId);
-    const org = orgResult[0];
-    
     // Get allowed org units (franchise + its centers)
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId);
     
     // Get totals for students and active enrollments in franchise hierarchy
     const totalsQuery = `
@@ -300,9 +295,6 @@ router.get('/franchise', authRequired, async (req: AuthRequest, res: Response) =
       LEFT JOIN "AbacusEnrollment" e ON s."id" = e."studentId" AND e."status" = 'ONGOING'
       WHERE s."orgUnitId" = ANY($1)
     `;
-    
-    const totalsResult: any = await prisma.$queryRawUnsafe(totalsQuery, allowedOrgUnits);
-    const totals = totalsResult[0];
     
     // Get per-center data
     const perCenterQuery = `
@@ -319,7 +311,14 @@ router.get('/franchise', authRequired, async (req: AuthRequest, res: Response) =
       ORDER BY o."code"
     `;
     
-    const perCenter: any = await prisma.$queryRawUnsafe(perCenterQuery, req.user.orgUnitId);
+    const [orgResult, totalsResult, perCenter]: any = await Promise.all([
+      prisma.$queryRawUnsafe(orgQuery, req.user.orgUnitId),
+      prisma.$queryRawUnsafe(totalsQuery, allowedOrgUnits),
+      prisma.$queryRawUnsafe(perCenterQuery, req.user.orgUnitId),
+    ]);
+
+    const org = orgResult[0];
+    const totals = totalsResult[0];
     
     // Convert BigInt to Number for all count fields
     const formattedPerCenter = perCenter.map((center: any) => ({
@@ -374,13 +373,6 @@ router.get('/center', authRequired, async (req: AuthRequest, res: Response) => {
       return fail(res, 400, 'VALIDATION_ERROR', 'User not associated with an organization unit');
     }
     
-    // Get center org unit details
-    const centerOrgUnit = await getOrgUnitDetails(req.user.orgUnitId);
-    
-    if (!centerOrgUnit) {
-      return fail(res, 404, 'NOT_FOUND', 'Center organization unit not found');
-    }
-    
     // Get totals for students and enrollments in center
     const totalsQuery = `
       SELECT 
@@ -391,9 +383,6 @@ router.get('/center', authRequired, async (req: AuthRequest, res: Response) => {
       LEFT JOIN "AbacusEnrollment" e ON s."id" = e."studentId"
       WHERE s."orgUnitId" = $1
     `;
-    
-    const totalsResult: any = await prisma.$queryRawUnsafe(totalsQuery, req.user.orgUnitId);
-    const totals = totalsResult[0];
     
     // Get primary course info (assuming first Abacus course is primary)
     const abacusQuery = `
@@ -409,13 +398,6 @@ router.get('/center', authRequired, async (req: AuthRequest, res: Response) => {
       ORDER BY c."id"
       LIMIT 1
     `;
-    
-    const abacusResult: any = await prisma.$queryRawUnsafe(abacusQuery, req.user.orgUnitId);
-    const abacus = abacusResult[0] || {
-      primaryCourseCode: null,
-      primaryCourseName: null,
-      activeStudentsInPrimaryCourse: 0
-    };
     
     // Get recent activity (last 7 days)
     const activityQuery = `
@@ -433,16 +415,30 @@ router.get('/center', authRequired, async (req: AuthRequest, res: Response) => {
     const financeQuery = `
       SELECT 
         COUNT(sfr."id") as "totalStudents",
-        COALESCE(SUM(CASE WHEN sfr."status" = 'PENDING' THEN sfr."amount" ELSE 0 END), 0) as "outstandingAmount"
+        COALESCE(SUM(CASE WHEN sfr."status" IN ('PENDING','PARTIAL') THEN sfr."amount" ELSE 0 END), 0) as "outstandingAmount"
       FROM "StudentFeeRecord" sfr
       WHERE sfr."orgUnitId" = $1
     `;
-    
-    const activityResult: any = await prisma.$queryRawUnsafe(activityQuery, req.user.orgUnitId);
+
+    const [centerOrgUnit, totalsResult, abacusResult, activityResult, financeResult]: any = await Promise.all([
+      getOrgUnitDetails(req.user.orgUnitId),
+      prisma.$queryRawUnsafe(totalsQuery, req.user.orgUnitId),
+      prisma.$queryRawUnsafe(abacusQuery, req.user.orgUnitId),
+      prisma.$queryRawUnsafe(activityQuery, req.user.orgUnitId),
+      prisma.$queryRawUnsafe(financeQuery, req.user.orgUnitId),
+    ]);
+
+    if (!centerOrgUnit) {
+      return fail(res, 404, 'NOT_FOUND', 'Center organization unit not found');
+    }
+
+    const totals = totalsResult[0];
+    const abacus = abacusResult[0] || {
+      primaryCourseCode: null,
+      primaryCourseName: null,
+      activeStudentsInPrimaryCourse: 0,
+    };
     const recentActivity = activityResult[0];
-    
-    // Get finance summary for center
-    const financeResult: any = await prisma.$queryRawUnsafe(financeQuery, req.user.orgUnitId);
     const finance = financeResult[0];
     
     // Log audit

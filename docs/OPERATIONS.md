@@ -19,6 +19,7 @@
 - Hotspots (code review): `/api/dashboard/*` (superadmin/bp/franchise/center), `/api/reports/finance/advanced`, `/api/reports/commissions/rollups`, `/api/reports/assessments`, `/api/finance/*` (dues/transactions), `/api/licensing/allocations`.
 - Fixes applied: request timing logs with `requestId`, slow query logging (default 200ms), and pagination defaults for report list endpoints (`/api/reports/students`, `/api/reports/enrollments`, `/api/reports/attendance`).
 - For investigation: set `SLOW_QUERY_THRESHOLD_MS` to tune logging in dev/staging.
+- Cold start note: the first request after boot can log slow queries; measure after warm-up in production mode.
 
 ### Core backend checks (pre-release)
 - `pnpm --filter @lms/server test:all-core`

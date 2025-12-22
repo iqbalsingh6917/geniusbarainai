@@ -1,6 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../prismaClient';
+import { getRequestCache } from '../utils/requestContext';
 
 /**
  * Get all descendant org units recursively
@@ -8,19 +7,25 @@ const prisma = new PrismaClient();
  * @returns Array of org unit IDs including the root and all descendants
  */
 export async function getDescendantOrgUnits(rootOrgUnitId: number): Promise<number[]> {
-  const descendants: number[] = [rootOrgUnitId];
-  
-  // Get direct children using raw query
-  const children: any = await prisma.$queryRaw`
-    SELECT "id" FROM "OrgUnit" WHERE "parentId" = ${rootOrgUnitId}
-  `;
-  
-  // Recursively get descendants for each child
-  for (const child of children) {
-    const childDescendants = await getDescendantOrgUnits(child.id);
-    descendants.push(...childDescendants);
+  const cache = getRequestCache();
+  const cacheKey = `descendants:${rootOrgUnitId}`;
+  if (cache?.has(cacheKey)) {
+    return cache.get(cacheKey) as number[];
   }
-  
+
+  const rows: any = await prisma.$queryRaw`
+    WITH RECURSIVE org_tree AS (
+      SELECT "id", "parentId" FROM "OrgUnit" WHERE "id" = ${rootOrgUnitId}
+      UNION ALL
+      SELECT ou."id", ou."parentId"
+      FROM "OrgUnit" ou
+      JOIN org_tree ot ON ou."parentId" = ot."id"
+    )
+    SELECT "id" FROM org_tree
+  `;
+
+  const descendants = (rows || []).map((row: { id: number }) => row.id);
+  cache?.set(cacheKey, descendants);
   return descendants;
 }
 
@@ -59,20 +64,31 @@ export async function enforceOrgScope(userOrgUnitId: number, targetOrgUnitId: nu
  * @returns Array of allowed org unit IDs
  */
 export async function getAllowedOrgUnitsForUser(userRole: string, userOrgUnitId: number | null): Promise<number[]> {
+  const cache = getRequestCache();
+  const cacheKey = `allowed:${userRole}:${userOrgUnitId ?? 'none'}`;
+  if (cache?.has(cacheKey)) {
+    return cache.get(cacheKey) as number[];
+  }
+
   // SUPERADMIN can access everything
   if (userRole === 'SUPERADMIN') {
     // Get all org units using raw query
     const allOrgUnits: any = await prisma.$queryRaw`
       SELECT "id" FROM "OrgUnit"
     `;
-    return allOrgUnits.map((org: { id: number }) => org.id);
+    const result = allOrgUnits.map((org: { id: number }) => org.id);
+    cache?.set(cacheKey, result);
+    return result;
   }
   
   // For other roles, get descendant org units if user has an org unit
   if (userOrgUnitId) {
-    return await getDescendantOrgUnits(userOrgUnitId);
+    const result = await getDescendantOrgUnits(userOrgUnitId);
+    cache?.set(cacheKey, result);
+    return result;
   }
   
   // If user has no org unit, they can't access anything
+  cache?.set(cacheKey, []);
   return [];
 }
