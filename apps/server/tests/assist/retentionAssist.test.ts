@@ -21,6 +21,7 @@ const makeToken = (user: { id: number; role: string; orgUnitId?: number | null; 
 };
 
 async function resetDb() {
+  await prisma.settlement.deleteMany({});
   await prisma.studentWorksheetAttempt.deleteMany({});
   await prisma.teacherStudentAssignment.deleteMany({});
   await prisma.abacusEnrollment.deleteMany({});

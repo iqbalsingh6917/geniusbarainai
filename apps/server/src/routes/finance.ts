@@ -17,12 +17,16 @@ import {
   createTransactionSchema,
   createCenterTransactionSchema,
   settlementPreviewSchema,
+  settlementCreateSchema,
+  settlementListSchema,
 } from '../schemas/financeSchema';
 import { computeSettlementPreview } from '../services/settlementPreviewService';
 import { isSuperadmin } from '../constants/roles';
 
 const router = Router();
 const prisma = new PrismaClient();
+const canAccessSettlements = (role?: string) =>
+  !!role && (isSuperadmin(role) || isBusinessPartner(role) || isFranchise(role) || isCenterManager(role));
 
 // GET /superadmin/finance/settings
 // Role: SUPERADMIN only
@@ -238,10 +242,7 @@ router.post('/transactions', authRequired, superadminOnly, async (req: AuthReque
 // Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
 router.post('/settlements/preview', authRequired, async (req: AuthRequest, res: Response) => {
   try {
-    if (
-      !req.user ||
-      !(isSuperadmin(req.user.role) || isBusinessPartner(req.user.role) || isFranchise(req.user.role) || isCenterManager(req.user.role))
-    ) {
+    if (!req.user || !canAccessSettlements(req.user.role)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
     }
 
@@ -256,6 +257,7 @@ router.post('/settlements/preview', authRequired, async (req: AuthRequest, res: 
       orgUnitId: parsed.orgUnitId,
       periodStart: parsed.periodStart,
       periodEnd: parsed.periodEnd,
+      revenueSharePercent: parsed.revenueSharePercent,
     });
 
     await logAudit(req, {
@@ -274,6 +276,165 @@ router.post('/settlements/preview', authRequired, async (req: AuthRequest, res: 
       return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
     }
     console.error('Error computing settlement preview:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// POST /api/finance/settlements
+// Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
+router.post('/settlements', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !canAccessSettlements(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
+    }
+
+    const parsed = settlementCreateSchema.parse(req.body);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+
+    if (!allowedOrgUnits.includes(parsed.orgUnitId)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+    }
+
+    const preview = await computeSettlementPreview({
+      orgUnitId: parsed.orgUnitId,
+      periodStart: parsed.periodStart,
+      periodEnd: parsed.periodEnd,
+      revenueSharePercent: parsed.revenueSharePercent,
+    });
+
+    const settlement = await prisma.settlement.create({
+      data: {
+        orgUnitId: preview.orgUnitId,
+        periodStart: preview.periodStart,
+        periodEnd: preview.periodEnd,
+        grossCollected: preview.grossCollected,
+        refunds: preview.refunds,
+        adjustments: preview.adjustments,
+        netCollected: preview.netCollected,
+        revenueSharePercent: preview.revenueSharePercent,
+        revenueShareAmount: preview.revenueShareAmount,
+        netPayable: preview.netPayable,
+        breakdown: preview.breakdown,
+        warnings: preview.warnings,
+        status: 'DRAFT',
+      },
+    });
+
+    await logAudit(req, {
+      action: 'SETTLEMENT_DRAFT_CREATED',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      meta: {
+        orgUnitId: settlement.orgUnitId,
+        periodStart: settlement.periodStart,
+        periodEnd: settlement.periodEnd,
+        grossCollected: settlement.grossCollected,
+        netPayable: settlement.netPayable,
+        status: settlement.status,
+      },
+    });
+
+    ok(res, settlement, 201);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    console.error('Error creating settlement draft:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/finance/settlements
+// Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
+router.get('/settlements', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !canAccessSettlements(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
+    }
+
+    const parsed = settlementListSchema.parse(req.query);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+
+    if (parsed.orgUnitId && !allowedOrgUnits.includes(parsed.orgUnitId)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+    }
+
+    const limit = parsed.limit ?? 20;
+    const offset = parsed.offset ?? 0;
+
+    const where: any = { orgUnitId: { in: allowedOrgUnits } };
+    if (parsed.orgUnitId) {
+      where.orgUnitId = parsed.orgUnitId;
+    }
+    if (parsed.status) {
+      where.status = parsed.status;
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.settlement.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+      }),
+      prisma.settlement.count({ where }),
+    ]);
+
+    await logAudit(req, {
+      action: 'SETTLEMENTS_LIST_VIEWED',
+      entityType: 'Settlement',
+      meta: {
+        limit,
+        offset,
+        status: parsed.status ?? null,
+        orgUnitId: parsed.orgUnitId ?? null,
+        orgUnitCount: allowedOrgUnits.length,
+      },
+    });
+
+    ok(res, { items, total, limit, offset });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    console.error('Error fetching settlements list:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/finance/settlements/:id
+// Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
+router.get('/settlements/:id', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !canAccessSettlements(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
+    }
+
+    const settlementId = Number(req.params.id);
+    if (!Number.isInteger(settlementId) || settlementId <= 0) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid settlement id');
+    }
+
+    const settlement = await prisma.settlement.findUnique({ where: { id: settlementId } });
+    if (!settlement) {
+      return fail(res, 404, 'NOT_FOUND', 'Settlement not found');
+    }
+
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    if (!allowedOrgUnits.includes(settlement.orgUnitId)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+    }
+
+    await logAudit(req, {
+      action: 'SETTLEMENT_VIEWED',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      meta: { orgUnitId: settlement.orgUnitId, status: settlement.status },
+    });
+
+    ok(res, settlement);
+  } catch (error) {
+    console.error('Error fetching settlement:', error);
     fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
   }
 });

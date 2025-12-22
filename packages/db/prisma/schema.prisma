@@ -173,6 +173,7 @@ model OrgUnit {
   leads              Lead[]
   commissionRules    CommissionRule[]
   commissionRecords  CommissionRecord[]
+  settlements        Settlement[]
 }
 
 model AbacusCourse {
@@ -600,6 +601,32 @@ model PaymentTransaction {
 
   @@index([orgUnitId])
   @@index([createdAt])
+}
+
+model Settlement {
+  id                  Int      @id @default(autoincrement())
+  orgUnitId            Int
+  periodStart          DateTime
+  periodEnd            DateTime
+  grossCollected       Int
+  refunds              Int
+  adjustments          Int
+  netCollected         Int
+  revenueSharePercent  Int
+  revenueShareAmount   Int
+  netPayable           Int
+  breakdown            Json?
+  warnings             Json?
+  status               String   @default("DRAFT")
+  finalizedAt          DateTime?
+  paidAt               DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  orgUnit OrgUnit @relation(fields: [orgUnitId], references: [id])
+
+  @@index([orgUnitId, periodStart, periodEnd])
+  @@index([status])
 }
 
 model Lead {

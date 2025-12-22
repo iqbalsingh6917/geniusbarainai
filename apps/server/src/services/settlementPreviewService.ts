@@ -34,6 +34,7 @@ export async function computeSettlementPreview(params: {
   orgUnitId: number;
   periodStart: Date;
   periodEnd: Date;
+  revenueSharePercent?: number;
 }): Promise<SettlementPreview> {
   const { orgUnitId, periodStart, periodEnd } = params;
 
@@ -78,7 +79,10 @@ export async function computeSettlementPreview(params: {
   const adjustments = 0;
   const netCollected = Math.max(0, grossCollected - refunds - adjustments);
 
-  const revenueSharePercent = SETTLEMENT_DEFAULTS.revenueSharePercent;
+  const revenueSharePercent =
+    typeof params.revenueSharePercent === 'number'
+      ? params.revenueSharePercent
+      : SETTLEMENT_DEFAULTS.revenueSharePercent;
   const revenueShareAmount = Math.round((netCollected * revenueSharePercent) / 100);
   const netPayable = revenueShareAmount;
 
