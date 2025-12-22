@@ -5,9 +5,11 @@ import {
   createLead,
   fetchLead,
   fetchLeadAssist,
+  fetchLeadMetricsSummary,
   fetchLeadSummary,
   listLeadAssistSummary,
   listLeads,
+  snoozeLead,
   updateLead,
   updateLeadStage,
 } from '../api/salesLeadsClient';
@@ -18,6 +20,7 @@ const CenterLeadsPage: React.FC = () => {
       title="Leads (Center)"
       summaryLoader={() => fetchLeadSummary('center')}
       listLoader={listLeads}
+      metricsLoader={fetchLeadMetricsSummary}
       assistLoader={listLeadAssistSummary}
       fetchLead={fetchLead}
       fetchLeadAssist={fetchLeadAssist}
@@ -25,6 +28,7 @@ const CenterLeadsPage: React.FC = () => {
       updateLead={updateLead}
       updateStage={(id, payload) => updateLeadStage(id, payload)}
       assignLead={assignLead}
+      snoozeLead={snoozeLead}
     />
   );
 };

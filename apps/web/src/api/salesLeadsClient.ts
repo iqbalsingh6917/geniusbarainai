@@ -3,11 +3,22 @@ import { apiClient } from '../utils/apiClient';
 export type LeadStage = 'NEW' | 'CONTACTED' | 'TRIAL_BOOKED' | 'TRIAL_DONE' | 'CONVERTED' | 'LOST';
 export type LeadSource = 'CAMPAIGN' | 'REFERRAL' | 'WALK_IN' | 'WHATSAPP' | 'OTHER' | 'ONLINE' | 'SCHOOL';
 export type LeadAssistTier = 'HOT' | 'WARM' | 'COLD';
+export type LeadFollowUpFilter = 'overdue' | 'due_today' | 'due_next_7_days' | 'none';
 
 export interface LeadSummary {
   totalLeads: number;
   byStage: Record<LeadStage | string, number>;
   bySource: Record<string, number>;
+}
+
+export interface LeadMetricsSummary {
+  totalLeads: number;
+  byStage: Record<LeadStage | string, number>;
+  overdueFollowUps?: number;
+  overdueCount: number;
+  dueTodayCount: number;
+  dueNext7DaysCount: number;
+  unassignedOverdueCount: number;
 }
 
 export interface LeadListItem {
@@ -92,6 +103,7 @@ export type LeadListFilters = {
   q?: string;
   from?: string;
   to?: string;
+  followUp?: LeadFollowUpFilter;
   limit?: number;
   offset?: number;
   page?: number;
@@ -109,6 +121,15 @@ export async function fetchLeadSummary(role: 'bp' | 'franchise' | 'center'): Pro
   return res;
 }
 
+export async function fetchLeadMetricsSummary(filters: Pick<LeadListFilters, 'stage' | 'assignedTo'> = {}): Promise<LeadMetricsSummary> {
+  const params = new URLSearchParams();
+  if (filters.stage) params.set('stage', filters.stage);
+  if (filters.assignedTo !== undefined) params.set('assignedTo', String(filters.assignedTo));
+  const query = params.toString();
+  const res = await apiClient.get(`/api/leads/metrics/summary${query ? `?${query}` : ''}`);
+  return res;
+}
+
 export async function listLeads(filters: LeadListFilters = {}): Promise<LeadListResponse> {
   const params = new URLSearchParams();
   if (filters.stage) params.set('stage', filters.stage);
@@ -116,6 +137,7 @@ export async function listLeads(filters: LeadListFilters = {}): Promise<LeadList
   if (filters.q) params.set('q', filters.q);
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
+  if (filters.followUp) params.set('followUp', filters.followUp);
   if (filters.limit) params.set('limit', String(filters.limit));
   if (filters.offset !== undefined) params.set('offset', String(filters.offset));
   if (filters.page) params.set('page', String(filters.page));
@@ -154,6 +176,11 @@ export async function assignLead(id: number, assignedToUserId: number | null): P
   return res;
 }
 
+export async function snoozeLead(id: number, days: 1 | 3 | 7): Promise<LeadListItem> {
+  const res = await apiClient.post(`/api/leads/${id}/snooze`, { days });
+  return res;
+}
+
 export async function fetchLeadAssist(id: number): Promise<LeadAssistResult> {
   const res = await apiClient.get(`/api/leads/${id}/assist`);
   return res;
@@ -173,6 +200,7 @@ export async function listLeadAssistSummary(filters: LeadListFilters = {}): Prom
   if (filters.q) params.set('q', filters.q);
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
+  if (filters.followUp) params.set('followUp', filters.followUp);
   if (filters.limit) params.set('limit', String(filters.limit));
   if (filters.offset !== undefined) params.set('offset', String(filters.offset));
   if (filters.page) params.set('page', String(filters.page));

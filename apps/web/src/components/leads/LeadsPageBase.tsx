@@ -4,8 +4,10 @@ import {
   LeadAssistResult,
   LeadAssistSummaryItem,
   LeadDetail,
+  LeadFollowUpFilter,
   LeadListFilters,
   LeadListItem,
+  LeadMetricsSummary,
   LeadPayload,
   LeadStage,
   LeadSummary,
@@ -47,6 +49,35 @@ const tierClasses: Record<'HOT' | 'WARM' | 'COLD', string> = {
   COLD: 'text-gray-500',
 };
 
+const getFollowUpStatus = (lead: LeadListItem) => {
+  if (!lead.nextFollowUpAt) return null;
+  if (lead.stage === 'CONVERTED' || lead.stage === 'LOST') return null;
+
+  const followUpDate = new Date(lead.nextFollowUpAt);
+  if (Number.isNaN(followUpDate.getTime())) return null;
+
+  const now = new Date();
+  if (followUpDate < now) {
+    return { label: 'Overdue', className: 'text-red-600' };
+  }
+
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  if (followUpDate >= start && followUpDate <= end) {
+    return { label: 'Due today', className: 'text-yellow-600' };
+  }
+
+  const nextWeek = new Date(now);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  if (followUpDate <= nextWeek) {
+    return { label: 'Next 7 days', className: 'text-blue-600' };
+  }
+
+  return null;
+};
+
 type LeadsPageBaseProps = {
   title: string;
   summaryLoader: () => Promise<LeadSummary>;
@@ -56,6 +87,7 @@ type LeadsPageBaseProps = {
     page: number;
     pageSize: number;
   }>;
+  metricsLoader?: (filters?: Pick<LeadListFilters, 'stage' | 'assignedTo'>) => Promise<LeadMetricsSummary>;
   assistLoader: (filters?: LeadListFilters) => Promise<{
     items: LeadAssistSummaryItem[];
     total: number;
@@ -68,12 +100,14 @@ type LeadsPageBaseProps = {
   updateLead: (id: number, payload: Partial<LeadPayload>) => Promise<LeadListItem>;
   updateStage: (id: number, payload: { stage: LeadStage; lostReason?: string }) => Promise<LeadListItem>;
   assignLead: (id: number, assignedToUserId: number | null) => Promise<LeadListItem>;
+  snoozeLead: (id: number, days: 1 | 3 | 7) => Promise<LeadListItem>;
 };
 
 const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   title,
   summaryLoader,
   listLoader,
+  metricsLoader,
   assistLoader,
   fetchLead,
   fetchLeadAssist,
@@ -81,6 +115,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   updateLead,
   updateStage,
   assignLead,
+  snoozeLead,
 }) => {
   const { showToast } = useToast();
   const { user } = useAuth();
@@ -93,6 +128,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string>(searchParams.get('stage') || '');
+  const [followUpFilter, setFollowUpFilter] = useState<LeadFollowUpFilter | ''>('');
   const [search, setSearch] = useState('');
   const [assignedFilter, setAssignedFilter] = useState<'all' | 'me' | 'unassigned'>('all');
   const [dateFrom, setDateFrom] = useState('');
@@ -100,20 +136,27 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [metrics, setMetrics] = useState<LeadMetricsSummary | null>(null);
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<LeadDetail | null>(null);
   const [selectedAssist, setSelectedAssist] = useState<LeadAssistResult | null>(null);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<LeadPayload>({ firstName: '', stage: 'NEW', lostReason: '' });
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
+  const [snoozingId, setSnoozingId] = useState<number | null>(null);
 
   useEffect(() => {
     loadSummary();
   }, []);
 
   useEffect(() => {
+    loadMetrics();
+  }, [stageFilter, assignedFilter]);
+
+  useEffect(() => {
     setPage(1);
-  }, [stageFilter, search, assignedFilter, dateFrom, dateTo]);
+  }, [stageFilter, followUpFilter, search, assignedFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     loadList();
@@ -131,6 +174,22 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
     }
   };
 
+  const loadMetrics = async () => {
+    if (!metricsLoader) return;
+    try {
+      setLoadingMetrics(true);
+      const metricsRes = await metricsLoader({
+        stage: stageFilter ? (stageFilter as LeadStage) : undefined,
+        assignedTo: assignedFilter === 'all' ? undefined : assignedFilter,
+      });
+      setMetrics(metricsRes);
+    } catch (err) {
+      console.error('Failed to load lead follow-up metrics', err);
+    } finally {
+      setLoadingMetrics(false);
+    }
+  };
+
   const loadList = async () => {
     try {
       setLoading(true);
@@ -138,6 +197,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       const filters: LeadListFilters = {
         stage: stageFilter ? (stageFilter as LeadStage) : undefined,
         assignedTo: assignedFilter === 'all' ? undefined : assignedFilter,
+        followUp: followUpFilter ? followUpFilter : undefined,
         q: search.trim() || undefined,
         from: dateFrom || undefined,
         to: dateTo || undefined,
@@ -172,6 +232,10 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
     await loadSummary();
   };
 
+  const refreshMetrics = async () => {
+    await loadMetrics();
+  };
+
   const handleCreate = async () => {
     setCreating(true);
   };
@@ -197,6 +261,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       await refreshAssistForLead(updated.id);
       await refreshSummary();
+      await refreshMetrics();
       showToast('Lead updated', 'success');
     } catch (err) {
       handleErrorToast(err, showToast, 'Could not update lead');
@@ -222,6 +287,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       await refreshAssistForLead(updated.id);
       await refreshSummary();
+      await refreshMetrics();
       showToast(`Stage set to ${STAGE_LABELS[stage]}`, 'success');
     } catch (err) {
       handleErrorToast(err, showToast, 'Could not update lead stage');
@@ -236,6 +302,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
       setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       await refreshAssistForLead(updated.id);
+      await refreshMetrics();
       showToast('Lead assigned', 'success');
     } catch (err) {
       handleErrorToast(err, showToast, 'Could not assign lead');
@@ -249,8 +316,25 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
       setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       await refreshAssistForLead(updated.id);
+      await refreshMetrics();
     } catch (err) {
       handleErrorToast(err, showToast, 'Could not update assignment');
+    }
+  };
+
+  const handleSnooze = async (leadId: number, days: 1 | 3 | 7) => {
+    setSnoozingId(leadId);
+    try {
+      const updated = await snoozeLead(leadId, days);
+      setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
+      setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+      await refreshAssistForLead(updated.id);
+      await refreshMetrics();
+      showToast(`Snoozed ${days} day${days === 1 ? '' : 's'}`, 'success');
+    } catch (err) {
+      handleErrorToast(err, showToast, 'Could not snooze follow-up');
+    } finally {
+      setSnoozingId(null);
     }
   };
 
@@ -269,6 +353,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       const created = await createLead(createForm);
       setLeads((prev) => [created, ...prev]);
       await refreshSummary();
+      await refreshMetrics();
       showToast('Lead created', 'success');
       setCreateForm({ firstName: '', lastName: '', contactEmail: '', contactPhone: '', stage: 'NEW', lostReason: '' });
       setCreating(false);
@@ -393,6 +478,17 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
               </option>
             ))}
           </select>
+          <select
+            className="form-control"
+            value={followUpFilter}
+            onChange={(e) => setFollowUpFilter(e.target.value as LeadFollowUpFilter | '')}
+          >
+            <option value="">All follow-ups</option>
+            <option value="overdue">Overdue</option>
+            <option value="due_today">Due today</option>
+            <option value="due_next_7_days">Due next 7 days</option>
+            <option value="none">No follow-up</option>
+          </select>
           <input
             className="form-control"
             type="date"
@@ -429,6 +525,25 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
           </div>
         ))}
       </div>
+
+      {metricsLoader && (
+        <div className="flex flex-wrap gap-3 text-sm text-gray-600 mb-4">
+          <div className="bg-gray-50 rounded px-3 py-2">
+            Overdue: <span className="font-semibold">{loadingMetrics ? '...' : metrics?.overdueCount ?? 0}</span>
+          </div>
+          <div className="bg-gray-50 rounded px-3 py-2">
+            Due today: <span className="font-semibold">{loadingMetrics ? '...' : metrics?.dueTodayCount ?? 0}</span>
+          </div>
+          <div className="bg-gray-50 rounded px-3 py-2">
+            Due next 7 days:{' '}
+            <span className="font-semibold">{loadingMetrics ? '...' : metrics?.dueNext7DaysCount ?? 0}</span>
+          </div>
+          <div className="bg-gray-50 rounded px-3 py-2">
+            Unassigned overdue:{' '}
+            <span className="font-semibold">{loadingMetrics ? '...' : metrics?.unassignedOverdueCount ?? 0}</span>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded shadow">
         <div className="overflow-x-auto">
@@ -486,7 +601,12 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
                   </td>
                   <td className="px-3 py-2">{formatAssignedLabel(lead)}</td>
                   <td className="px-3 py-2">
-                    {lead.nextFollowUpAt ? new Date(lead.nextFollowUpAt).toLocaleDateString() : '-'}
+                    <div>{lead.nextFollowUpAt ? new Date(lead.nextFollowUpAt).toLocaleDateString() : '-'}</div>
+                    {(() => {
+                      const status = getFollowUpStatus(lead);
+                      if (!status) return null;
+                      return <div className={`text-xs ${status.className}`}>{status.label}</div>;
+                    })()}
                   </td>
                   <td className="px-3 py-2">
                     {lead.updatedAt ? new Date(lead.updatedAt).toLocaleDateString() : '-'}
@@ -507,6 +627,27 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
                           </option>
                         ))}
                       </select>
+                      {lead.stage !== 'CONVERTED' && lead.stage !== 'LOST' && (
+                        <select
+                          className="form-control form-control-sm"
+                          defaultValue=""
+                          disabled={snoozingId === lead.id}
+                          onChange={(e) => {
+                            const value = Number(e.target.value) as 1 | 3 | 7;
+                            if (value) {
+                              void handleSnooze(lead.id, value);
+                              e.currentTarget.value = '';
+                            }
+                          }}
+                        >
+                          <option value="" disabled>
+                            Snooze
+                          </option>
+                          <option value="1">Snooze 1d</option>
+                          <option value="3">Snooze 3d</option>
+                          <option value="7">Snooze 7d</option>
+                        </select>
+                      )}
                       {user?.id && lead.assignedToUserId !== user.id && (
                         <button className="btn btn-outline btn-sm" onClick={() => handleAssignToMe(lead.id)}>
                           Assign to me
@@ -557,6 +698,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
         onSave={handleSave}
         onStageChange={(stage, lostReason) => handleStageChange(stage, undefined, lostReason)}
         onAssign={handleAssign}
+        onSnooze={(days) => (selectedLead ? handleSnooze(selectedLead.id, days) : Promise.resolve())}
       />
 
       {creating && (

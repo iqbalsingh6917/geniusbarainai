@@ -12,6 +12,7 @@ type LeadDetailDrawerProps = {
   onSave: (data: Partial<LeadPayload>) => Promise<void>;
   onStageChange: (stage: LeadStage, lostReason?: string) => Promise<void>;
   onAssign: (assignedToUserId: number | null) => Promise<void>;
+  onSnooze: (days: 1 | 3 | 7) => Promise<void>;
 };
 
 const SOURCES: LeadSource[] = ['CAMPAIGN', 'REFERRAL', 'WALK_IN', 'WHATSAPP', 'OTHER', 'ONLINE', 'SCHOOL'];
@@ -59,13 +60,23 @@ const toDateTimeLocal = (value?: string | null) => {
   return date.toISOString().slice(0, 16);
 };
 
-const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({ lead, assist, open, onClose, onSave, onStageChange, onAssign }) => {
+const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
+  lead,
+  assist,
+  open,
+  onClose,
+  onSave,
+  onStageChange,
+  onAssign,
+  onSnooze,
+}) => {
   const { user } = useAuth();
   const { showToast } = useToast();
   const [form, setForm] = useState<Partial<LeadPayload>>({});
   const [saving, setSaving] = useState(false);
   const [stageUpdating, setStageUpdating] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [snoozing, setSnoozing] = useState(false);
   const [assistMessage, setAssistMessage] = useState('');
 
   useEffect(() => {
@@ -128,6 +139,15 @@ const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({ lead, assist, open,
       handleErrorToast(err, showToast, 'Could not update assignment');
     } finally {
       setAssigning(false);
+    }
+  };
+
+  const handleSnooze = async (days: 1 | 3 | 7) => {
+    setSnoozing(true);
+    try {
+      await onSnooze(days);
+    } finally {
+      setSnoozing(false);
     }
   };
 
@@ -254,6 +274,19 @@ const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({ lead, assist, open,
               value={form.nextFollowUpAt ?? ''}
               onChange={(e) => setForm((p) => ({ ...p, nextFollowUpAt: e.target.value }))}
             />
+            {currentStage !== 'CONVERTED' && currentStage !== 'LOST' && (
+              <div className="flex gap-2 mt-2 flex-wrap">
+                <button className="btn btn-outline btn-xs" onClick={() => handleSnooze(1)} disabled={snoozing}>
+                  Snooze 1d
+                </button>
+                <button className="btn btn-outline btn-xs" onClick={() => handleSnooze(3)} disabled={snoozing}>
+                  Snooze 3d
+                </button>
+                <button className="btn btn-outline btn-xs" onClick={() => handleSnooze(7)} disabled={snoozing}>
+                  Snooze 7d
+                </button>
+              </div>
+            )}
           </div>
           {(form.stage === 'LOST' || form.lostReason) && (
             <div>
