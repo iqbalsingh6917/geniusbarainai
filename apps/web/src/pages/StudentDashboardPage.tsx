@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient } from '../utils/apiClient';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import ErrorCard from '../components/ui/ErrorCard';
+import { fetchStudentAssistSummary, StudentInsight } from '../api/retentionAssistClient';
 
 interface StudentDashboardData {
   student: {
@@ -53,6 +54,8 @@ const StudentDashboardPage: React.FC = () => {
   const [data, setData] = useState<StudentDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [insights, setInsights] = useState<StudentInsight[]>([]);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -82,6 +85,26 @@ const StudentDashboardPage: React.FC = () => {
 
     fetchData();
   }, [studentId, navigate]);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadInsights() {
+      try {
+        const res = await fetchStudentAssistSummary();
+        if (!isMounted) return;
+        setInsights(res.insights ?? []);
+        setInsightsError(null);
+      } catch (err) {
+        console.error('Failed to load learning insights', err);
+        if (!isMounted) return;
+        setInsightsError('Failed to load learning insights.');
+      }
+    }
+    loadInsights();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const badge = (text: string, tone: 'success' | 'neutral' | 'danger') => {
     const toneClass =
@@ -183,6 +206,28 @@ const StudentDashboardPage: React.FC = () => {
         <div className="progress">
           <div className="progress-bar" style={{ width: `${completionPercent}%` }} />
         </div>
+      </div>
+
+      {/* Learning Insights */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">Learning Insights</h2>
+        </div>
+        {insightsError && <div className="muted">{insightsError}</div>}
+        {!insightsError && insights.length === 0 && (
+          <div className="muted">You are on track. Keep practicing to build consistency.</div>
+        )}
+        {!insightsError && insights.length > 0 && (
+          <div className="space-y-3">
+            {insights.slice(0, 3).map((insight) => (
+              <div key={insight.code} className="border rounded p-3">
+                <div className="font-medium">{insight.title}</div>
+                <div className="muted">{insight.description}</div>
+                <div className="text-sm text-gray-700">{insight.suggestedAction}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Assessments */}

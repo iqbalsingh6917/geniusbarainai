@@ -4,10 +4,12 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import Skeleton from '../components/ui/Skeleton';
 import { apiClient } from '../utils/apiClient';
 import AnomaliesPanel from '../components/ops/AnomaliesPanel';
+import RetentionSignalsPanel from '../components/assist/RetentionSignalsPanel';
 import { fetchCenterDashboard } from '../api/centerDashboardClient';
 import { OrgDashboardSummary } from '../api/bpDashboardClient';
 import { fetchCenterLeadSummary } from '../api/centerLeadsClient';
 import { formatCurrency, formatPercent } from '../utils/formatters';
+import { fetchCenterAssistSignals, RetentionSignal, RetentionSignalsResponse } from '../api/retentionAssistClient';
 import { fetchOpsAnomalySummary, OpsAnomalySummary } from '../api/opsAnomaliesClient';
 
 type StudentRow = {
@@ -35,6 +37,10 @@ const CenterDashboard: React.FC = () => {
   const [opsSummary, setOpsSummary] = useState<OpsAnomalySummary | null>(null);
   const [opsLoading, setOpsLoading] = useState(false);
   const [opsError, setOpsError] = useState<string | null>(null);
+  const [assistSignals, setAssistSignals] = useState<RetentionSignal[]>([]);
+  const [assistSummary, setAssistSummary] = useState<RetentionSignalsResponse['summary'] | null>(null);
+  const [assistLoading, setAssistLoading] = useState(false);
+  const [assistError, setAssistError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -79,6 +85,30 @@ const CenterDashboard: React.FC = () => {
       }
     }
     loadOpsAnomalies();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAssistSignals() {
+      try {
+        setAssistLoading(true);
+        setAssistError(null);
+        const res = await fetchCenterAssistSignals({ window: 14, limit: 50, offset: 0 });
+        if (!isMounted) return;
+        setAssistSignals(res.items ?? []);
+        setAssistSummary(res.summary ?? null);
+      } catch (err) {
+        console.error('Failed to load assist signals', err);
+        if (!isMounted) return;
+        setAssistError('Failed to load signals.');
+      } finally {
+        if (isMounted) setAssistLoading(false);
+      }
+    }
+    loadAssistSignals();
     return () => {
       isMounted = false;
     };
@@ -139,6 +169,32 @@ const CenterDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xl font-semibold">Student Risk Signals</h2>
+          {assistSummary ? (
+            <span className="text-xs text-gray-500">{assistSummary.totalSignals} signals</span>
+          ) : null}
+        </div>
+        <RetentionSignalsPanel
+          title="Top student signals"
+          signals={assistSignals}
+          loading={assistLoading}
+          error={assistError}
+          maxItems={5}
+          showDetails={false}
+        />
+        {assistSummary?.byCode && Object.keys(assistSummary.byCode).length > 0 && (
+          <div className="mt-2 text-xs text-gray-600">
+            {Object.entries(assistSummary.byCode).map(([code, count]) => (
+              <span key={code} className="inline-block mr-3">
+                {code}: {count}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
 
       {orgSummary && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">

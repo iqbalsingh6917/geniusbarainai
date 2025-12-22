@@ -2,10 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { apiClient } from '../utils/apiClient';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import RetentionSignalsPanel from '../components/assist/RetentionSignalsPanel';
 import {
   AssessmentAnalyticsSummary,
   fetchTeacherAssessmentSummary,
 } from '../api/assessmentAnalyticsClient';
+import {
+  fetchTeacherAssistSignals,
+  RetentionSignal,
+  RetentionSignalsResponse,
+} from '../api/retentionAssistClient';
 
 type OverviewRow = {
   enrollmentId: number;
@@ -19,6 +25,12 @@ type OverviewRow = {
 };
 
 type TeacherOverviewResponse = {
+  kpis?: {
+    studentsAssigned: number;
+    worksheetsAssigned: number;
+    worksheetsPendingReview: number;
+    averageAccuracy: number;
+  };
   students: OverviewRow[];
 };
 
@@ -29,6 +41,12 @@ const TeacherDashboard: React.FC = () => {
   const [assessmentSummary, setAssessmentSummary] = useState<AssessmentAnalyticsSummary | null>(null);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [assessmentError, setAssessmentError] = useState<string | null>(null);
+  const [kpis, setKpis] = useState<TeacherOverviewResponse['kpis'] | null>(null);
+  const [assistSignals, setAssistSignals] = useState<RetentionSignal[]>([]);
+  const [assistSummary, setAssistSummary] = useState<RetentionSignalsResponse['summary'] | null>(null);
+  const [assistLoading, setAssistLoading] = useState(false);
+  const [assistError, setAssistError] = useState<string | null>(null);
+  const [showAllSignals, setShowAllSignals] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -37,6 +55,7 @@ const TeacherDashboard: React.FC = () => {
         const data = (await apiClient.get('/api/dashboard/teacher/overview')) as any;
         const payload: TeacherOverviewResponse = data?.data ?? data; // handle axios or fetch wrapper
         setRows(payload?.students || []);
+        setKpis(payload?.kpis ?? null);
         setError(null);
       } catch (err) {
         console.error('Error fetching teacher dashboard overview:', err);
@@ -63,6 +82,30 @@ const TeacherDashboard: React.FC = () => {
       }
     }
     loadAssessments();
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAssistSignals() {
+      try {
+        setAssistLoading(true);
+        setAssistError(null);
+        const res = await fetchTeacherAssistSignals({ window: 14, limit: 50, offset: 0 });
+        if (!isMounted) return;
+        setAssistSignals(res.items ?? []);
+        setAssistSummary(res.summary ?? null);
+      } catch (err) {
+        console.error('Failed to load assist signals', err);
+        if (!isMounted) return;
+        setAssistError('Failed to load assist signals.');
+      } finally {
+        if (isMounted) setAssistLoading(false);
+      }
+    }
+    loadAssistSignals();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const renderStatusBadge = (progress: number) => {
@@ -113,6 +156,70 @@ const TeacherDashboard: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xl font-semibold">Assist Signals</h2>
+              {assistSummary ? (
+                <span className="text-xs text-gray-500">
+                  {assistSummary.totalSignals} signals
+                </span>
+              ) : null}
+            </div>
+            <RetentionSignalsPanel
+              title="Top signals"
+              signals={assistSignals}
+              loading={assistLoading}
+              error={assistError}
+              maxItems={5}
+              showDetails={false}
+            />
+            {assistSignals.length > 0 && (
+              <div className="mt-3">
+                <button className="btn btn-outline btn-sm" onClick={() => setShowAllSignals((prev) => !prev)}>
+                  {showAllSignals ? 'Hide details' : 'View all signals'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {showAllSignals && (
+            <div className="mb-6">
+              <RetentionSignalsPanel
+                title="All assist signals"
+                signals={assistSignals}
+                loading={assistLoading}
+                error={assistError}
+                maxItems={assistSignals.length}
+                showDetails
+                showDrafts
+              />
+            </div>
+          )}
+
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 className="text-xl font-semibold mb-4">Today's workload</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+              <div className="border rounded p-4">
+                <div className="muted">Students assigned</div>
+                <div className="text-lg font-semibold">{kpis?.studentsAssigned ?? rows.length}</div>
+              </div>
+              <div className="border rounded p-4">
+                <div className="muted">Worksheets assigned</div>
+                <div className="text-lg font-semibold">{kpis?.worksheetsAssigned ?? 0}</div>
+              </div>
+              <div className="border rounded p-4">
+                <div className="muted">Pending review</div>
+                <div className="text-lg font-semibold">{kpis?.worksheetsPendingReview ?? 0}</div>
+              </div>
+              <div className="border rounded p-4">
+                <div className="muted">Avg accuracy</div>
+                <div className="text-lg font-semibold">
+                  {kpis?.averageAccuracy !== undefined ? `${kpis.averageAccuracy}%` : '—'}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
