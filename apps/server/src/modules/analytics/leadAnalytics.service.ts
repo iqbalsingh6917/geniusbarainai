@@ -1,7 +1,7 @@
 import { prisma } from '@lms/db';
 
 const KNOWN_STAGES = ['NEW', 'CONTACTED', 'TRIAL_BOOKED', 'TRIAL_DONE', 'CONVERTED', 'LOST'] as const;
-const KNOWN_SOURCES = ['CAMPAIGN', 'REFERRAL', 'WALK_IN', 'WHATSAPP', 'OTHER'] as const;
+const KNOWN_SOURCES = ['CAMPAIGN', 'REFERRAL', 'WALK_IN', 'WHATSAPP', 'OTHER', 'ONLINE', 'SCHOOL'] as const;
 
 export type LeadFunnelStats = {
   totalLeads: number;

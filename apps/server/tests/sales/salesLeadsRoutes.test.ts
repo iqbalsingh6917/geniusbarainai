@@ -194,4 +194,89 @@ describe('Sales leads routes', () => {
       .send({ stage: 'CONTACTED' })
       .expect(200);
   });
+
+  it('franchise cannot see sibling franchise leads', async () => {
+    const orgs = await seedOrgTree();
+    const { frUser } = await seedUsers(orgs);
+    const siblingFr = await prisma.orgUnit.create({
+      data: { code: 'FR2', name: 'FR2', type: 'FRANCHISE', parentId: orgs.bp.id },
+    });
+    const siblingCenter = await prisma.orgUnit.create({
+      data: { code: 'CE2', name: 'CE2', type: 'CENTER', parentId: siblingFr.id },
+    });
+
+    await prisma.lead.createMany({
+      data: [
+        { firstName: 'Main FR', stage: 'NEW', orgUnitId: orgs.franchise.id },
+        { firstName: 'Main Center', stage: 'NEW', orgUnitId: orgs.center.id },
+        { firstName: 'Sibling FR', stage: 'NEW', orgUnitId: siblingFr.id },
+        { firstName: 'Sibling Center', stage: 'NEW', orgUnitId: siblingCenter.id },
+      ],
+    });
+
+    const frToken = makeToken({ id: frUser.id, role: frUser.role, orgUnitId: frUser.orgUnitId });
+    const res = await request(app).get('/api/leads').set('Authorization', `Bearer ${frToken}`).expect(200);
+    const items = res.body.data?.items ?? res.body.items ?? [];
+    expect(items.find((l: any) => l.orgUnitId === siblingFr.id)).toBeFalsy();
+    expect(items.find((l: any) => l.orgUnitId === siblingCenter.id)).toBeFalsy();
+  });
+
+  it('teacher is forbidden from lead endpoints', async () => {
+    const orgs = await seedOrgTree();
+    const teacher = await prisma.user.create({
+      data: { username: 'teacher_leads', passwordHash: 'x', role: 'TEACHER', orgUnitId: orgs.center.id },
+    });
+    const token = makeToken({ id: teacher.id, role: teacher.role, orgUnitId: teacher.orgUnitId });
+    await request(app).get('/api/leads').set('Authorization', `Bearer ${token}`).expect(403);
+  });
+
+  it('validates stage transitions and lost reason', async () => {
+    const orgs = await seedOrgTree();
+    const { bpUser } = await seedUsers(orgs);
+    const token = makeToken({ id: bpUser.id, role: bpUser.role, orgUnitId: bpUser.orgUnitId });
+    const lead = await prisma.lead.create({
+      data: { firstName: 'Stage Check', stage: 'NEW', orgUnitId: orgs.bp.id },
+    });
+
+    await request(app)
+      .post(`/api/leads/${lead.id}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ stage: 'TRIAL_DONE' })
+      .expect(400);
+
+    await request(app)
+      .post(`/api/leads/${lead.id}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ stage: 'LOST' })
+      .expect(400);
+
+    const res = await request(app)
+      .post(`/api/leads/${lead.id}/stage`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ stage: 'LOST', lostReason: 'No response' })
+      .expect(200);
+
+    const updated = res.body.data ?? res.body;
+    expect(updated.stage).toBe('LOST');
+    expect(updated.lostReason).toBe('No response');
+  });
+
+  it('applies pagination defaults', async () => {
+    const orgs = await seedOrgTree();
+    const { bpUser } = await seedUsers(orgs);
+    await prisma.lead.createMany({
+      data: [
+        { firstName: 'Lead 1', stage: 'NEW', orgUnitId: orgs.bp.id },
+        { firstName: 'Lead 2', stage: 'NEW', orgUnitId: orgs.bp.id },
+      ],
+    });
+
+    const token = makeToken({ id: bpUser.id, role: bpUser.role, orgUnitId: bpUser.orgUnitId });
+    const res = await request(app).get('/api/leads').set('Authorization', `Bearer ${token}`).expect(200);
+    const data = res.body.data ?? res.body;
+    expect(data.page).toBe(1);
+    expect(data.pageSize).toBe(20);
+    expect(data.limit).toBe(20);
+    expect(data.offset).toBe(0);
+  });
 });
