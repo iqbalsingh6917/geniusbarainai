@@ -618,15 +618,17 @@ model Settlement {
   breakdown            Json?
   warnings             Json?
   status               String   @default("DRAFT")
+  computedAt           DateTime @default(now())
   finalizedAt          DateTime?
+  finalizedByUserId    Int?
   paidAt               DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   orgUnit OrgUnit @relation(fields: [orgUnitId], references: [id])
 
-  @@index([orgUnitId, periodStart, periodEnd])
   @@index([status])
+  @@unique([orgUnitId, periodStart, periodEnd])
 }
 
 model Lead {

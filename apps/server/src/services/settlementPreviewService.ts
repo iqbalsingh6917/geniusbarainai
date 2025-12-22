@@ -44,21 +44,21 @@ export async function computeSettlementPreview(params: {
       where: {
         orgUnitId,
         type: 'CREDIT',
-        createdAt: { gte: periodStart, lte: periodEnd },
+        createdAt: { gte: periodStart, lt: periodEnd },
       },
     }),
     prisma.paymentTransaction.count({
       where: {
         orgUnitId,
         type: 'CREDIT',
-        createdAt: { gte: periodStart, lte: periodEnd },
+        createdAt: { gte: periodStart, lt: periodEnd },
       },
     }),
     prisma.studentFeeRecord.aggregate({
       _sum: { amount: true },
       where: {
         orgUnitId,
-        createdAt: { gte: periodStart, lte: periodEnd },
+        createdAt: { gte: periodStart, lt: periodEnd },
       },
     }),
     prisma.studentFeeRecord.aggregate({
@@ -66,7 +66,7 @@ export async function computeSettlementPreview(params: {
       where: {
         orgUnitId,
         status: { in: ['PENDING', 'PARTIAL'] },
-        createdAt: { lte: periodEnd },
+        createdAt: { lt: periodEnd },
       },
     }),
   ]);

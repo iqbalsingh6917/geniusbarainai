@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { authRequired, superadminOnly, AuthRequest } from '../middleware/auth';
 import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
 import { 
@@ -317,6 +317,7 @@ router.post('/settlements', authRequired, async (req: AuthRequest, res: Response
         breakdown: preview.breakdown,
         warnings: preview.warnings,
         status: 'DRAFT',
+        computedAt: new Date(),
       },
     });
 
@@ -338,6 +339,9 @@ router.post('/settlements', authRequired, async (req: AuthRequest, res: Response
   } catch (error) {
     if (error instanceof z.ZodError) {
       return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return fail(res, 409, 'ALREADY_EXISTS', 'Settlement already exists for this period');
     }
     console.error('Error creating settlement draft:', error);
     fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
@@ -435,6 +439,105 @@ router.get('/settlements/:id', authRequired, async (req: AuthRequest, res: Respo
     ok(res, settlement);
   } catch (error) {
     console.error('Error fetching settlement:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// POST /api/finance/settlements/:id/finalize
+// Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
+router.post('/settlements/:id/finalize', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !canAccessSettlements(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
+    }
+
+    const settlementId = Number(req.params.id);
+    if (!Number.isInteger(settlementId) || settlementId <= 0) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid settlement id');
+    }
+
+    const settlement = await prisma.settlement.findUnique({ where: { id: settlementId } });
+    if (!settlement) {
+      return fail(res, 404, 'NOT_FOUND', 'Settlement not found');
+    }
+
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    if (!allowedOrgUnits.includes(settlement.orgUnitId)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+    }
+
+    if (settlement.status !== 'DRAFT') {
+      return fail(res, 409, 'INVALID_STATUS', `Settlement is already ${settlement.status}`);
+    }
+
+    const overlapping = await prisma.settlement.findFirst({
+      where: {
+        orgUnitId: settlement.orgUnitId,
+        status: 'FINALIZED',
+        NOT: { id: settlement.id },
+        periodStart: { lt: settlement.periodEnd },
+        periodEnd: { gt: settlement.periodStart },
+      },
+    });
+
+    if (overlapping) {
+      return fail(
+        res,
+        409,
+        'OVERLAPPING_FINALIZED_SETTLEMENT',
+        'A finalized settlement already covers part of this period',
+      );
+    }
+
+    const preview = await computeSettlementPreview({
+      orgUnitId: settlement.orgUnitId,
+      periodStart: settlement.periodStart,
+      periodEnd: settlement.periodEnd,
+      revenueSharePercent: settlement.revenueSharePercent,
+    });
+
+    const updateResult = await prisma.settlement.updateMany({
+      where: { id: settlement.id, status: 'DRAFT' },
+      data: {
+        grossCollected: preview.grossCollected,
+        refunds: preview.refunds,
+        adjustments: preview.adjustments,
+        netCollected: preview.netCollected,
+        revenueSharePercent: preview.revenueSharePercent,
+        revenueShareAmount: preview.revenueShareAmount,
+        netPayable: preview.netPayable,
+        breakdown: preview.breakdown,
+        warnings: preview.warnings,
+        status: 'FINALIZED',
+        finalizedAt: new Date(),
+        finalizedByUserId: req.user.id ?? null,
+        computedAt: new Date(),
+      },
+    });
+
+    if (updateResult.count === 0) {
+      return fail(res, 409, 'INVALID_STATUS', 'Settlement is no longer in DRAFT status');
+    }
+
+    const finalized = await prisma.settlement.findUnique({ where: { id: settlement.id } });
+
+    await logAudit(req, {
+      action: 'SETTLEMENT_FINALIZED',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      meta: {
+        orgUnitId: settlement.orgUnitId,
+        periodStart: settlement.periodStart,
+        periodEnd: settlement.periodEnd,
+        grossCollected: preview.grossCollected,
+        netPayable: preview.netPayable,
+        status: 'FINALIZED',
+      },
+    });
+
+    ok(res, finalized);
+  } catch (error) {
+    console.error('Error finalizing settlement:', error);
     fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
   }
 });

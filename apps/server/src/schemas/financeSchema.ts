@@ -21,14 +21,32 @@ export const createCenterTransactionSchema = z.object({
   notes: z.string().optional()
 });
 
+const dateOnlyRegex = /^\d{4}-\d{2}-\d{2}$/;
+
+const normalizeDateInput = (value: unknown, isEnd: boolean) => {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (dateOnlyRegex.test(trimmed)) {
+      const [year, month, day] = trimmed.split('-').map(Number);
+      const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      if (isEnd) {
+        return new Date(Date.UTC(year, month - 1, day + 1, 0, 0, 0, 0));
+      }
+      return start;
+    }
+  }
+  return value;
+};
+
 const settlementWindowSchema = z
   .object({
     orgUnitId: z.number().int().positive(),
-    periodStart: z.coerce.date(),
-    periodEnd: z.coerce.date(),
+    periodStart: z.preprocess((value) => normalizeDateInput(value, false), z.coerce.date()),
+    periodEnd: z.preprocess((value) => normalizeDateInput(value, true), z.coerce.date()),
     revenueSharePercent: z.coerce.number().min(0).max(100).optional(),
   })
-  .refine((data) => data.periodEnd >= data.periodStart, {
+  .refine((data) => data.periodEnd > data.periodStart, {
     message: 'periodEnd must be after periodStart',
     path: ['periodEnd'],
   });

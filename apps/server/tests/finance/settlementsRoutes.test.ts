@@ -96,6 +96,28 @@ describe('Settlements (draft)', () => {
     expect(data.status).toBe('DRAFT');
   });
 
+  it('prevents duplicate draft creation for the same period', async () => {
+    const center = await prisma.orgUnit.create({ data: { code: 'CE1', name: 'Center', type: 'CENTER' } });
+    const admin = await prisma.user.create({
+      data: { username: 'sa-dup', passwordHash: 'x', role: 'SUPERADMIN', orgUnitId: center.id },
+    });
+    const token = makeToken({ id: admin.id, role: admin.role, orgUnitId: admin.orgUnitId });
+
+    const payload = {
+      orgUnitId: center.id,
+      periodStart: '2025-04-01',
+      periodEnd: '2025-04-30',
+    };
+
+    await request(app).post('/api/finance/settlements').set('Authorization', `Bearer ${token}`).send(payload).expect(201);
+
+    await request(app)
+      .post('/api/finance/settlements')
+      .set('Authorization', `Bearer ${token}`)
+      .send(payload)
+      .expect(409);
+  });
+
   it('blocks draft creation outside BP scope', async () => {
     const root = await prisma.orgUnit.create({ data: { code: 'ROOT', name: 'Root', type: 'SUPERADMIN_ROOT' } });
     const bp1 = await prisma.orgUnit.create({ data: { code: 'BP1', name: 'BP1', type: 'BUSINESS_PARTNER', parentId: root.id } });
@@ -220,5 +242,106 @@ describe('Settlements (draft)', () => {
     expect(data.total).toBe(1);
     expect(data.items.length).toBe(1);
     expect(data.items[0].orgUnitId).toBe(center1.id);
+  });
+
+  it('finalizes a draft by recomputing totals and locking status', async () => {
+    const center = await prisma.orgUnit.create({ data: { code: 'CE1', name: 'Center', type: 'CENTER' } });
+    const course = await prisma.abacusCourse.create({
+      data: { code: `COURSE-${Date.now()}`, name: 'Course', variant: 'REGULAR' },
+    });
+    const student = await prisma.student.create({
+      data: { code: `STU-${Date.now()}`, firstName: 'Stu', status: 'ACTIVE', orgUnitId: center.id },
+    });
+    const enrollment = await prisma.abacusEnrollment.create({
+      data: { studentId: student.id, courseId: course.id, status: 'ONGOING', orgUnitId: center.id },
+    });
+
+    await prisma.studentFeeRecord.create({
+      data: {
+        studentId: student.id,
+        enrollmentId: enrollment.id,
+        orgUnitId: center.id,
+        amount: 400,
+        status: 'PENDING',
+        createdAt: new Date('2025-05-02T10:00:00.000Z'),
+      },
+    });
+
+    await prisma.paymentTransaction.create({
+      data: { orgUnitId: center.id, amount: 100, type: 'CREDIT', createdAt: new Date('2025-05-05T10:00:00.000Z') },
+    });
+
+    const centerUser = await prisma.user.create({
+      data: { username: 'ce-final', passwordHash: 'x', role: 'CENTER_MANAGER', orgUnitId: center.id },
+    });
+    const token = makeToken({ id: centerUser.id, role: centerUser.role, orgUnitId: centerUser.orgUnitId });
+
+    const createRes = await request(app)
+      .post('/api/finance/settlements')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        orgUnitId: center.id,
+        periodStart: '2025-05-01',
+        periodEnd: '2025-05-31',
+        revenueSharePercent: 10,
+      })
+      .expect(201);
+
+    const created = createRes.body.data ?? createRes.body;
+    expect(created.status).toBe('DRAFT');
+
+    await prisma.paymentTransaction.create({
+      data: { orgUnitId: center.id, amount: 50, type: 'CREDIT', createdAt: new Date('2025-05-20T10:00:00.000Z') },
+    });
+
+    const finalizeRes = await request(app)
+      .post(`/api/finance/settlements/${created.id}/finalize`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const finalized = finalizeRes.body.data ?? finalizeRes.body;
+    expect(finalized.status).toBe('FINALIZED');
+    expect(finalized.grossCollected).toBe(150);
+    expect(finalized.revenueShareAmount).toBe(15);
+    expect(finalized.finalizedByUserId).toBe(centerUser.id);
+
+    await request(app)
+      .post(`/api/finance/settlements/${created.id}/finalize`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(409);
+  });
+
+  it('blocks finalizing when an overlapping settlement is already finalized', async () => {
+    const center = await prisma.orgUnit.create({ data: { code: 'CE1', name: 'Center', type: 'CENTER' } });
+    const admin = await prisma.user.create({
+      data: { username: 'sa-overlap', passwordHash: 'x', role: 'SUPERADMIN', orgUnitId: center.id },
+    });
+    const token = makeToken({ id: admin.id, role: admin.role, orgUnitId: admin.orgUnitId });
+
+    const first = await request(app)
+      .post('/api/finance/settlements')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ orgUnitId: center.id, periodStart: '2025-06-01', periodEnd: '2025-06-30' })
+      .expect(201);
+
+    const firstSettlement = first.body.data ?? first.body;
+
+    await request(app)
+      .post(`/api/finance/settlements/${firstSettlement.id}/finalize`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const second = await request(app)
+      .post('/api/finance/settlements')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ orgUnitId: center.id, periodStart: '2025-06-15', periodEnd: '2025-07-15' })
+      .expect(201);
+
+    const secondSettlement = second.body.data ?? second.body;
+
+    await request(app)
+      .post(`/api/finance/settlements/${secondSettlement.id}/finalize`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(409);
   });
 });
