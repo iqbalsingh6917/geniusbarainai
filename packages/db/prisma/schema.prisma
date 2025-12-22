@@ -38,6 +38,8 @@ enum LeadSource {
   WALK_IN
   WHATSAPP
   OTHER
+  ONLINE
+  SCHOOL
 }
 
 enum ModuleAttemptStatus {
@@ -169,6 +171,8 @@ model OrgUnit {
   allocationsGiven   LicenseAllocation[] @relation("ParentOrg")
   allocationsReceived LicenseAllocation[] @relation("ChildOrg")
   leads              Lead[]
+  commissionRules    CommissionRule[]
+  commissionRecords  CommissionRecord[]
 }
 
 model AbacusCourse {
@@ -177,6 +181,11 @@ model AbacusCourse {
   name        String
   variant     String
   description String?
+  ageBand     String?
+  durationWeeks Int?
+  difficultyBand String?
+  feeAmount   Int?
+  feeCurrency String?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   modules     AbacusModule[]
@@ -599,12 +608,15 @@ model Lead {
   lastName            String?
   contactEmail        String?
   contactPhone        String?
+  city                String?
   source              LeadSource @default(OTHER)
   stage               LeadStage  @default(NEW)
   orgUnitId           Int?
   createdByUserId     Int?
   assignedToUserId    Int?
   notes               String?
+  lostReason          String?
+  nextFollowUpAt      DateTime?
   lastStageChangedAt  DateTime?
   lastStageChangedBy  Int?
   createdAt           DateTime   @default(now())
@@ -618,6 +630,9 @@ model Lead {
   @@index([orgUnitId])
   @@index([stage])
   @@index([createdAt])
+  @@index([orgUnitId, stage, updatedAt])
+  @@index([orgUnitId, nextFollowUpAt])
+  @@index([assignedToUserId, stage])
 }
 
 model LeadActivity {
@@ -727,6 +742,46 @@ model AuditLog {
   @@index([userId])
   @@index([orgUnitId])
   @@index([entityType, entityId])
+}
+
+model CommissionRule {
+  id         Int      @id @default(autoincrement())
+  orgUnitId  Int
+  type       String
+  amount     Int
+  currency   String   @default("INR")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orgUnit    OrgUnit  @relation(fields: [orgUnitId], references: [id])
+  records    CommissionRecord[]
+
+  @@index([orgUnitId])
+  @@index([type])
+}
+
+model CommissionRecord {
+  id         Int      @id @default(autoincrement())
+  orgUnitId  Int
+  ruleId     Int
+  entityType String
+  entityId   Int
+  courseId   Int?
+  courseCode String?
+  amount     Int
+  currency   String
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  orgUnit    OrgUnit         @relation(fields: [orgUnitId], references: [id])
+  rule       CommissionRule  @relation(fields: [ruleId], references: [id])
+
+  @@unique([ruleId, entityType, entityId])
+  @@unique([entityType, entityId])
+  @@index([orgUnitId])
+  @@index([entityType])
+  @@index([courseCode])
 }
 
 // Next migration suggestion: add_attempt_feedback_fields
