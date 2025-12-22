@@ -21,6 +21,12 @@
 - For investigation: set `SLOW_QUERY_THRESHOLD_MS` to tune logging in dev/staging.
 - Cold start note: the first request after boot can log slow queries; measure after warm-up in production mode.
 
+### AI Assist (rule-based, leads only)
+- Deterministic scoring and suggestions for leads; no external services or automated actions.
+- Output: score (0-100), tier (HOT/WARM/COLD), reasons (max 6), nextAction, suggestedMessage.
+- Scoring rules and thresholds live in `apps/server/src/services/leadAssistService.ts` (SCORE_RULES, TIER_THRESHOLDS).
+- Keep changes safe: edit constants only, preserve reason strings, and avoid logging PII.
+
 ### Core backend checks (pre-release)
 - `pnpm --filter @lms/server test:all-core`
 - `pnpm --filter @lms/server build`

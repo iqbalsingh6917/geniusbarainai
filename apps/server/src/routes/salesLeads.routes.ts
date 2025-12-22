@@ -7,6 +7,7 @@ import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
 import { createCommissionRecord } from '../services/commissionService';
+import { computeLeadAssist } from '../services/leadAssistService';
 
 const STAGES = ['NEW', 'CONTACTED', 'TRIAL_BOOKED', 'TRIAL_DONE', 'CONVERTED', 'LOST'] as const;
 const STAGE_ALIASES = {
@@ -157,6 +158,52 @@ async function getLeadSummary(orgUnitIds: number[]) {
   };
 }
 
+function buildLeadWhere(params: {
+  orgUnitIds: number[];
+  orgUnitId?: number;
+  stage?: Stage;
+  assignedToUserId?: number | null;
+  search?: string;
+  from?: Date;
+  to?: Date;
+}) {
+  const where: any = {};
+
+  if (params.orgUnitId) {
+    where.orgUnitId = params.orgUnitId;
+  } else if (params.orgUnitIds.length) {
+    where.orgUnitId = { in: params.orgUnitIds };
+  }
+
+  if (params.stage) {
+    where.stage = params.stage;
+  }
+
+  if (params.assignedToUserId === null) {
+    where.assignedToUserId = null;
+  } else if (typeof params.assignedToUserId === 'number') {
+    where.assignedToUserId = params.assignedToUserId;
+  }
+
+  if (params.search) {
+    const term = params.search;
+    where.OR = [
+      { firstName: { contains: term, mode: 'insensitive' } },
+      { lastName: { contains: term, mode: 'insensitive' } },
+      { contactEmail: { contains: term, mode: 'insensitive' } },
+      { contactPhone: { contains: term, mode: 'insensitive' } },
+    ];
+  }
+
+  if (params.from || params.to) {
+    where.updatedAt = {};
+    if (params.from) where.updatedAt.gte = params.from;
+    if (params.to) where.updatedAt.lte = params.to;
+  }
+
+  return where;
+}
+
 async function getLeadMetricsSummary(orgUnitIds: number[], orgUnitId?: number) {
   const where = orgUnitId ? { orgUnitId } : orgUnitIds.length ? { orgUnitId: { in: orgUnitIds } } : {};
   const counts: Record<Stage, number> = stageCountsTemplate();
@@ -203,39 +250,7 @@ async function listLeads(params: {
   to?: Date;
   orgUnitId?: number;
 }) {
-  const where: any = {};
-
-  if (params.orgUnitId) {
-    where.orgUnitId = params.orgUnitId;
-  } else if (params.orgUnitIds.length) {
-    where.orgUnitId = { in: params.orgUnitIds };
-  }
-
-  if (params.stage) {
-    where.stage = params.stage;
-  }
-
-  if (params.assignedToUserId === null) {
-    where.assignedToUserId = null;
-  } else if (typeof params.assignedToUserId === 'number') {
-    where.assignedToUserId = params.assignedToUserId;
-  }
-
-  if (params.search) {
-    const term = params.search;
-    where.OR = [
-      { firstName: { contains: term, mode: 'insensitive' } },
-      { lastName: { contains: term, mode: 'insensitive' } },
-      { contactEmail: { contains: term, mode: 'insensitive' } },
-      { contactPhone: { contains: term, mode: 'insensitive' } },
-    ];
-  }
-
-  if (params.from || params.to) {
-    where.updatedAt = {};
-    if (params.from) where.updatedAt.gte = params.from;
-    if (params.to) where.updatedAt.lte = params.to;
-  }
+  const where = buildLeadWhere(params);
 
   const [items, total] = await Promise.all([
     prisma.lead.findMany({
@@ -267,6 +282,39 @@ async function listLeads(params: {
   return { items, total };
 }
 
+async function listLeadsForAssist(params: {
+  orgUnitIds: number[];
+  limit: number;
+  offset: number;
+  stage?: Stage;
+  assignedToUserId?: number | null;
+  search?: string;
+  from?: Date;
+  to?: Date;
+  orgUnitId?: number;
+}) {
+  const where = buildLeadWhere(params);
+  const [items, total] = await Promise.all([
+    prisma.lead.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      skip: params.offset,
+      take: params.limit,
+      select: {
+        id: true,
+        stage: true,
+        nextFollowUpAt: true,
+        assignedToUserId: true,
+        updatedAt: true,
+        createdAt: true,
+      },
+    }),
+    prisma.lead.count({ where }),
+  ]);
+
+  return { items, total };
+}
+
 async function logStageChange(leadId: number, actorUserId: number | undefined, fromStage: Stage | null, toStage: Stage, note?: string) {
   await prisma.leadActivity.create({
     data: {
@@ -277,6 +325,33 @@ async function logStageChange(leadId: number, actorUserId: number | undefined, f
       note: note ?? null,
     },
   });
+}
+
+function toAssistSummary(lead: {
+  id: number;
+  stage: Stage | null;
+  nextFollowUpAt: Date | null;
+  assignedToUserId: number | null;
+  updatedAt: Date;
+  createdAt: Date;
+}) {
+  const assist = computeLeadAssist({
+    stage: lead.stage,
+    nextFollowUpAt: lead.nextFollowUpAt,
+    assignedToUserId: lead.assignedToUserId,
+    updatedAt: lead.updatedAt,
+    createdAt: lead.createdAt,
+  });
+
+  return {
+    id: lead.id,
+    stage: lead.stage,
+    nextFollowUpAt: lead.nextFollowUpAt,
+    score: assist.score,
+    tier: assist.tier,
+    topReason: assist.reasons[0] ?? null,
+    reasons: assist.reasons.slice(0, 2),
+  };
 }
 
 function parseStageFilter(stage?: string) {
@@ -407,6 +482,115 @@ router.get(
     } catch (err) {
       console.error('Error fetching lead metrics summary', err);
       fail(res, 500, 'INTERNAL_ERROR', 'Unable to load lead metrics');
+    }
+  },
+);
+
+router.get(
+  '/leads/assist/summary',
+  requireAuth,
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  async (req: any, res: any) => {
+    try {
+      const orgUnitId = req.user?.orgUnitId ?? undefined;
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const { limit, offset, page, pageSize } = parsePagination(req.query);
+
+      const stageResult = parseStageFilter(req.query.stage as string | undefined);
+      if (stageResult.error) {
+        return fail(res, 400, 'VALIDATION_ERROR', stageResult.error);
+      }
+
+      const assignedResult = parseAssignedTo(req.query.assignedTo as string | undefined, req.user?.id);
+      if (assignedResult.error) {
+        return fail(res, 400, 'VALIDATION_ERROR', assignedResult.error);
+      }
+
+      const orgUnitFilter = req.query.orgUnitId ? Number(req.query.orgUnitId) : undefined;
+      if (orgUnitFilter && !allowedOrgUnits.includes(orgUnitFilter)) {
+        return fail(res, 403, 'ACCESS_DENIED', 'Org unit not allowed');
+      }
+
+      const search = typeof req.query.q === 'string' ? req.query.q.trim() : undefined;
+      const fromRaw = typeof req.query.from === 'string' ? req.query.from : undefined;
+      const toRaw = typeof req.query.to === 'string' ? req.query.to : undefined;
+      const fromParsed = parseOptionalDate(fromRaw);
+      const toParsed = parseOptionalDate(toRaw);
+
+      if (fromParsed.error || toParsed.error) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Invalid date range');
+      }
+
+      const data = await listLeadsForAssist({
+        orgUnitIds: allowedOrgUnits,
+        orgUnitId: orgUnitFilter,
+        limit,
+        offset,
+        stage: stageResult.value,
+        assignedToUserId: assignedResult.value,
+        search,
+        from: fromParsed.value ?? undefined,
+        to: toParsed.value ?? undefined,
+      });
+
+      const items = data.items.map(toAssistSummary);
+
+      ok(res, {
+        items,
+        total: data.total,
+        page,
+        pageSize,
+        limit,
+        offset,
+      });
+    } catch (err) {
+      console.error('Error fetching lead assist summary', err);
+      fail(res, 500, 'INTERNAL_ERROR', 'Unable to load lead assist summary');
+    }
+  },
+);
+
+router.get(
+  '/leads/:id/assist',
+  requireAuth,
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  async (req: any, res: any) => {
+    try {
+      const leadId = Number(req.params.id);
+      if (!leadId) return fail(res, 400, 'VALIDATION_ERROR', 'Invalid lead id');
+
+      const orgUnitId = req.user?.orgUnitId ?? undefined;
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+
+      const lead = await prisma.lead.findUnique({
+        where: { id: leadId },
+        select: {
+          id: true,
+          stage: true,
+          nextFollowUpAt: true,
+          assignedToUserId: true,
+          updatedAt: true,
+          createdAt: true,
+          orgUnitId: true,
+        },
+      });
+
+      if (!lead || !(await ensureOrgAccess(allowedOrgUnits, lead.orgUnitId ?? undefined))) {
+        return fail(res, 404, 'NOT_FOUND', 'Lead not found');
+      }
+
+      const assist = computeLeadAssist({
+        stage: lead.stage,
+        nextFollowUpAt: lead.nextFollowUpAt,
+        assignedToUserId: lead.assignedToUserId,
+        updatedAt: lead.updatedAt,
+        createdAt: lead.createdAt,
+      });
+
+      ok(res, assist);
+    } catch (err) {
+      console.error('Error fetching lead assist', err);
+      fail(res, 500, 'INTERNAL_ERROR', 'Unable to load lead assist');
     }
   },
 );
