@@ -17,8 +17,10 @@ const STAGE_ALIASES = {
 } as const;
 const STAGE_INPUTS = [...STAGES, ...Object.keys(STAGE_ALIASES)] as const;
 const SOURCES = ['CAMPAIGN', 'REFERRAL', 'WALK_IN', 'WHATSAPP', 'OTHER', 'ONLINE', 'SCHOOL'] as const;
+const FOLLOW_UP_FILTERS = ['overdue', 'due_today', 'due_next_7_days', 'none'] as const;
 type Stage = (typeof STAGES)[number];
 type StageInput = (typeof STAGE_INPUTS)[number];
+type FollowUpFilter = (typeof FOLLOW_UP_FILTERS)[number];
 const ENROLLED_NOTE = 'Marked as enrolled';
 
 const leadPayloadSchema = z
@@ -72,6 +74,16 @@ const assignmentSchema = z.object({
   assignedToUserId: z.number().int().nullable(),
 });
 
+const snoozeSchema = z.object({
+  days: z.preprocess(
+    (value) => Number(value),
+    z
+      .number()
+      .int()
+      .refine((days) => [1, 3, 7].includes(days), 'Days must be 1, 3, or 7'),
+  ),
+});
+
 const router = Router();
 
 const VALID_TRANSITIONS: Record<Stage, Stage[]> = {
@@ -99,6 +111,42 @@ function parseOptionalDate(value?: string | null) {
   const parsed = new Date(String(value));
   if (Number.isNaN(parsed.getTime())) return { error: 'Invalid date' };
   return { value: parsed };
+}
+
+function startOfDay(value: Date) {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function endOfDay(value: Date) {
+  const date = new Date(value);
+  date.setHours(23, 59, 59, 999);
+  return date;
+}
+
+function addDays(value: Date, days: number) {
+  const date = new Date(value);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function buildFollowUpWhere(filter: FollowUpFilter, now: Date) {
+  const activeStages = { stage: { notIn: ['CONVERTED', 'LOST'] as Stage[] } };
+
+  if (filter === 'none') {
+    return { nextFollowUpAt: null };
+  }
+
+  if (filter === 'overdue') {
+    return { ...activeStages, nextFollowUpAt: { lt: now } };
+  }
+
+  if (filter === 'due_today') {
+    return { ...activeStages, nextFollowUpAt: { gte: startOfDay(now), lte: endOfDay(now) } };
+  }
+
+  return { ...activeStages, nextFollowUpAt: { gte: now, lte: addDays(now, 7) } };
 }
 
 function resolveName(input: { name?: string; firstName?: string; lastName?: string }) {
@@ -166,8 +214,11 @@ function buildLeadWhere(params: {
   search?: string;
   from?: Date;
   to?: Date;
+  followUp?: FollowUpFilter;
+  now?: Date;
 }) {
   const where: any = {};
+  const and: any[] = [];
 
   if (params.orgUnitId) {
     where.orgUnitId = params.orgUnitId;
@@ -201,17 +252,36 @@ function buildLeadWhere(params: {
     if (params.to) where.updatedAt.lte = params.to;
   }
 
+  if (params.followUp) {
+    const now = params.now ?? new Date();
+    and.push(buildFollowUpWhere(params.followUp, now));
+  }
+
+  if (and.length) {
+    where.AND = and;
+  }
+
   return where;
 }
 
-async function getLeadMetricsSummary(orgUnitIds: number[], orgUnitId?: number) {
-  const where = orgUnitId ? { orgUnitId } : orgUnitIds.length ? { orgUnitId: { in: orgUnitIds } } : {};
-  const counts: Record<Stage, number> = stageCountsTemplate();
+async function getLeadMetricsSummary(params: {
+  orgUnitIds: number[];
+  orgUnitId?: number;
+  stage?: Stage;
+  assignedToUserId?: number | null;
+}) {
+  const baseWhere = buildLeadWhere({
+    orgUnitIds: params.orgUnitIds,
+    orgUnitId: params.orgUnitId,
+    stage: params.stage,
+    assignedToUserId: params.assignedToUserId,
+  });
 
+  const counts: Record<Stage, number> = stageCountsTemplate();
   const grouped = await prisma.lead.groupBy({
     by: ['stage'],
     _count: true,
-    where,
+    where: baseWhere,
   });
 
   grouped.forEach((g) => {
@@ -224,18 +294,52 @@ async function getLeadMetricsSummary(orgUnitIds: number[], orgUnitId?: number) {
   });
 
   const totalLeads = Object.values(counts).reduce((a, b) => a + b, 0);
-  const overdueFollowUps = await prisma.lead.count({
-    where: {
-      ...where,
-      nextFollowUpAt: { lt: new Date() },
-      stage: { notIn: ['LOST', 'CONVERTED'] },
-    },
-  });
+  const now = new Date();
+  const activeStageFilter = { stage: { notIn: ['LOST', 'CONVERTED'] as Stage[] } };
+
+  const overdueWhere = {
+    ...baseWhere,
+    ...activeStageFilter,
+    nextFollowUpAt: { lt: now },
+  };
+  const dueTodayWhere = {
+    ...baseWhere,
+    ...activeStageFilter,
+    nextFollowUpAt: { gte: startOfDay(now), lte: endOfDay(now) },
+  };
+  const dueNext7DaysWhere = {
+    ...baseWhere,
+    ...activeStageFilter,
+    nextFollowUpAt: { gte: now, lte: addDays(now, 7) },
+  };
+
+  const shouldCountUnassigned =
+    baseWhere.assignedToUserId === undefined || baseWhere.assignedToUserId === null;
+
+  const [overdueCount, dueTodayCount, dueNext7DaysCount, unassignedOverdueCount] = await Promise.all([
+    prisma.lead.count({ where: overdueWhere }),
+    prisma.lead.count({ where: dueTodayWhere }),
+    prisma.lead.count({ where: dueNext7DaysWhere }),
+    shouldCountUnassigned
+      ? prisma.lead.count({
+          where: {
+            ...baseWhere,
+            ...activeStageFilter,
+            assignedToUserId: null,
+            nextFollowUpAt: { lt: now },
+          },
+        })
+      : Promise.resolve(0),
+  ]);
 
   return {
     totalLeads,
     byStage: counts,
-    overdueFollowUps,
+    overdueFollowUps: overdueCount,
+    overdueCount,
+    dueTodayCount,
+    dueNext7DaysCount,
+    unassignedOverdueCount,
   };
 }
 
@@ -249,6 +353,8 @@ async function listLeads(params: {
   from?: Date;
   to?: Date;
   orgUnitId?: number;
+  followUp?: FollowUpFilter;
+  now?: Date;
 }) {
   const where = buildLeadWhere(params);
 
@@ -292,6 +398,8 @@ async function listLeadsForAssist(params: {
   from?: Date;
   to?: Date;
   orgUnitId?: number;
+  followUp?: FollowUpFilter;
+  now?: Date;
 }) {
   const where = buildLeadWhere(params);
   const [items, total] = await Promise.all([
@@ -361,6 +469,15 @@ function parseStageFilter(stage?: string) {
     return { error: 'Invalid stage filter' };
   }
   return { value: normalizeStage(normalized as StageInput) };
+}
+
+function parseFollowUpFilter(value?: string) {
+  if (!value) return { value: undefined as FollowUpFilter | undefined };
+  const normalized = value.toLowerCase();
+  if (!FOLLOW_UP_FILTERS.includes(normalized as FollowUpFilter)) {
+    return { error: 'Invalid followUp filter' };
+  }
+  return { value: normalized as FollowUpFilter };
 }
 
 function parseAssignedTo(value: string | undefined, userId?: number) {
@@ -472,7 +589,22 @@ router.get(
         return fail(res, 403, 'ACCESS_DENIED', 'Org unit not allowed');
       }
 
-      const summary = await getLeadMetricsSummary(allowedOrgUnits, orgUnitFilter);
+      const stageResult = parseStageFilter(req.query.stage as string | undefined);
+      if (stageResult.error) {
+        return fail(res, 400, 'VALIDATION_ERROR', stageResult.error);
+      }
+
+      const assignedResult = parseAssignedTo(req.query.assignedTo as string | undefined, req.user?.id);
+      if (assignedResult.error) {
+        return fail(res, 400, 'VALIDATION_ERROR', assignedResult.error);
+      }
+
+      const summary = await getLeadMetricsSummary({
+        orgUnitIds: allowedOrgUnits,
+        orgUnitId: orgUnitFilter,
+        stage: stageResult.value,
+        assignedToUserId: assignedResult.value,
+      });
       await logAudit(req, {
         action: 'LEAD_METRICS_VIEWED',
         entityType: 'Lead',
@@ -506,6 +638,11 @@ router.get(
         return fail(res, 400, 'VALIDATION_ERROR', assignedResult.error);
       }
 
+      const followUpResult = parseFollowUpFilter(req.query.followUp as string | undefined);
+      if (followUpResult.error) {
+        return fail(res, 400, 'VALIDATION_ERROR', followUpResult.error);
+      }
+
       const orgUnitFilter = req.query.orgUnitId ? Number(req.query.orgUnitId) : undefined;
       if (orgUnitFilter && !allowedOrgUnits.includes(orgUnitFilter)) {
         return fail(res, 403, 'ACCESS_DENIED', 'Org unit not allowed');
@@ -521,6 +658,7 @@ router.get(
         return fail(res, 400, 'VALIDATION_ERROR', 'Invalid date range');
       }
 
+      const now = new Date();
       const data = await listLeadsForAssist({
         orgUnitIds: allowedOrgUnits,
         orgUnitId: orgUnitFilter,
@@ -531,6 +669,8 @@ router.get(
         search,
         from: fromParsed.value ?? undefined,
         to: toParsed.value ?? undefined,
+        followUp: followUpResult.value,
+        now,
       });
 
       const items = data.items.map(toAssistSummary);
@@ -615,6 +755,11 @@ router.get(
         return fail(res, 400, 'VALIDATION_ERROR', assignedResult.error);
       }
 
+      const followUpResult = parseFollowUpFilter(req.query.followUp as string | undefined);
+      if (followUpResult.error) {
+        return fail(res, 400, 'VALIDATION_ERROR', followUpResult.error);
+      }
+
       const orgUnitFilter = req.query.orgUnitId ? Number(req.query.orgUnitId) : undefined;
       if (orgUnitFilter && !allowedOrgUnits.includes(orgUnitFilter)) {
         return fail(res, 403, 'ACCESS_DENIED', 'Org unit not allowed');
@@ -630,6 +775,7 @@ router.get(
         return fail(res, 400, 'VALIDATION_ERROR', 'Invalid date range');
       }
 
+      const now = new Date();
       const data = await listLeads({
         orgUnitIds: allowedOrgUnits,
         orgUnitId: orgUnitFilter,
@@ -640,6 +786,8 @@ router.get(
         search,
         from: fromParsed.value ?? undefined,
         to: toParsed.value ?? undefined,
+        followUp: followUpResult.value,
+        now,
       });
 
       ok(res, { ...data, page, pageSize, limit, offset });
@@ -763,6 +911,59 @@ router.post(
       }
       console.error('Error assigning lead', err);
       fail(res, 500, 'INTERNAL_ERROR', 'Unable to assign lead');
+    }
+  },
+);
+
+router.post(
+  '/leads/:id/snooze',
+  requireAuth,
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  async (req: any, res: any) => {
+    try {
+      const leadId = Number(req.params.id);
+      if (!leadId) return fail(res, 400, 'VALIDATION_ERROR', 'Invalid lead id');
+
+      const parsed = snoozeSchema.parse(req.body);
+      const orgUnitId = req.user?.orgUnitId ?? undefined;
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+
+      const existing = await prisma.lead.findUnique({ where: { id: leadId } });
+      if (!existing || !(await ensureOrgAccess(allowedOrgUnits, existing.orgUnitId ?? undefined))) {
+        return fail(res, 404, 'NOT_FOUND', 'Lead not found');
+      }
+
+      if (existing.stage === 'CONVERTED' || existing.stage === 'LOST') {
+        return fail(res, 400, 'LEAD_NOT_SNOOZABLE', 'Cannot snooze enrolled or lost leads');
+      }
+
+      const now = new Date();
+      const base = existing.nextFollowUpAt && existing.nextFollowUpAt > now ? existing.nextFollowUpAt : now;
+      const nextFollowUpAt = addDays(base, parsed.days);
+
+      const updated = await prisma.lead.update({
+        where: { id: leadId },
+        data: { nextFollowUpAt },
+      });
+
+      await logAudit(req, {
+        action: 'LEAD_FOLLOWUP_SNOOZED',
+        entityType: 'Lead',
+        entityId: updated.id,
+        meta: {
+          prevNextFollowUpAt: existing.nextFollowUpAt?.toISOString() ?? null,
+          nextFollowUpAt: nextFollowUpAt.toISOString(),
+          days: parsed.days,
+        },
+      });
+
+      ok(res, updated);
+    } catch (err: any) {
+      if (err.name === 'ZodError') {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Invalid snooze payload', err.errors);
+      }
+      console.error('Error snoozing lead follow-up', err);
+      fail(res, 500, 'INTERNAL_ERROR', 'Unable to snooze follow-up');
     }
   },
 );

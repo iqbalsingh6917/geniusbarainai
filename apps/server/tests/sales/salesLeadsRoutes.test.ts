@@ -279,4 +279,111 @@ describe('Sales leads routes', () => {
     expect(data.limit).toBe(20);
     expect(data.offset).toBe(0);
   });
+
+  it('filters leads by follow-up buckets', async () => {
+    const orgs = await seedOrgTree();
+    const { bpUser } = await seedUsers(orgs);
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const overdueAt = new Date(now.getTime() - 2 * dayMs);
+    const dueTodayAt = new Date(now);
+    dueTodayAt.setHours(23, 0, 0, 0);
+    const dueNextAt = new Date(now.getTime() + 3 * dayMs);
+
+    const [overdueLead, todayLead, nextLead, noneLead, convertedLead] = await Promise.all([
+      prisma.lead.create({ data: { firstName: 'Overdue', stage: 'NEW', orgUnitId: orgs.bp.id, nextFollowUpAt: overdueAt } }),
+      prisma.lead.create({ data: { firstName: 'Today', stage: 'CONTACTED', orgUnitId: orgs.bp.id, nextFollowUpAt: dueTodayAt } }),
+      prisma.lead.create({ data: { firstName: 'Next', stage: 'TRIAL_BOOKED', orgUnitId: orgs.bp.id, nextFollowUpAt: dueNextAt } }),
+      prisma.lead.create({ data: { firstName: 'None', stage: 'NEW', orgUnitId: orgs.bp.id } }),
+      prisma.lead.create({ data: { firstName: 'Converted', stage: 'CONVERTED', orgUnitId: orgs.bp.id, nextFollowUpAt: overdueAt } }),
+    ]);
+
+    const token = makeToken({ id: bpUser.id, role: bpUser.role, orgUnitId: bpUser.orgUnitId });
+
+    const overdueRes = await request(app)
+      .get('/api/leads?followUp=overdue')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const overdueItems = overdueRes.body.data?.items ?? overdueRes.body.items ?? [];
+    expect(overdueItems.find((l: any) => l.id === overdueLead.id)).toBeTruthy();
+    expect(overdueItems.find((l: any) => l.id === noneLead.id)).toBeFalsy();
+    expect(overdueItems.find((l: any) => l.id === convertedLead.id)).toBeFalsy();
+
+    const todayRes = await request(app)
+      .get('/api/leads?followUp=due_today')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const todayItems = todayRes.body.data?.items ?? todayRes.body.items ?? [];
+    expect(todayItems.find((l: any) => l.id === todayLead.id)).toBeTruthy();
+
+    const nextRes = await request(app)
+      .get('/api/leads?followUp=due_next_7_days')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const nextItems = nextRes.body.data?.items ?? nextRes.body.items ?? [];
+    expect(nextItems.find((l: any) => l.id === nextLead.id)).toBeTruthy();
+
+    const noneRes = await request(app)
+      .get('/api/leads?followUp=none')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const noneItems = noneRes.body.data?.items ?? noneRes.body.items ?? [];
+    expect(noneItems.find((l: any) => l.id === noneLead.id)).toBeTruthy();
+  });
+
+  it('snoozes follow-up dates and enforces scope', async () => {
+    const orgs = await seedOrgTree();
+    const { bpUser, centerUser } = await seedUsers(orgs);
+    const now = new Date();
+    const overdueAt = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const lead = await prisma.lead.create({
+      data: { firstName: 'Snooze', stage: 'CONTACTED', orgUnitId: orgs.bp.id, nextFollowUpAt: overdueAt },
+    });
+    const outsideLead = await prisma.lead.create({
+      data: { firstName: 'Outside', stage: 'CONTACTED', orgUnitId: orgs.otherBp.id },
+    });
+
+    const token = makeToken({ id: bpUser.id, role: bpUser.role, orgUnitId: bpUser.orgUnitId });
+    const snoozeRes = await request(app)
+      .post(`/api/leads/${lead.id}/snooze`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ days: 3 })
+      .expect(200);
+
+    const updated = snoozeRes.body.data ?? snoozeRes.body;
+    const nextFollowUpAt = new Date(updated.nextFollowUpAt);
+    expect(nextFollowUpAt.getTime()).toBeGreaterThan(now.getTime());
+
+    const centerToken = makeToken({ id: centerUser.id, role: centerUser.role, orgUnitId: centerUser.orgUnitId });
+    await request(app)
+      .post(`/api/leads/${outsideLead.id}/snooze`)
+      .set('Authorization', `Bearer ${centerToken}`)
+      .send({ days: 1 })
+      .expect(404);
+  });
+
+  it('prevents snoozing converted or lost leads', async () => {
+    const orgs = await seedOrgTree();
+    const { bpUser } = await seedUsers(orgs);
+    const converted = await prisma.lead.create({
+      data: { firstName: 'Converted', stage: 'CONVERTED', orgUnitId: orgs.bp.id },
+    });
+    const lost = await prisma.lead.create({
+      data: { firstName: 'Lost', stage: 'LOST', orgUnitId: orgs.bp.id },
+    });
+
+    const token = makeToken({ id: bpUser.id, role: bpUser.role, orgUnitId: bpUser.orgUnitId });
+    await request(app)
+      .post(`/api/leads/${converted.id}/snooze`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ days: 1 })
+      .expect(400);
+
+    await request(app)
+      .post(`/api/leads/${lost.id}/snooze`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ days: 1 })
+      .expect(400);
+  });
 });

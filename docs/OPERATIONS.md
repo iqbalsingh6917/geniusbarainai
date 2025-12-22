@@ -27,6 +27,17 @@
 - Scoring rules and thresholds live in `apps/server/src/services/leadAssistService.ts` (SCORE_RULES, TIER_THRESHOLDS).
 - Keep changes safe: edit constants only, preserve reason strings, and avoid logging PII.
 
+### Lead follow-up discipline
+- Follow-up buckets (server filter `followUp=`):
+  - `overdue`: `nextFollowUpAt < now` and stage not in `CONVERTED/LOST`
+  - `due_today`: `nextFollowUpAt` within today (local server time) and stage not in `CONVERTED/LOST`
+  - `due_next_7_days`: `nextFollowUpAt` between now and now + 7 days and stage not in `CONVERTED/LOST`
+  - `none`: `nextFollowUpAt` is null
+- Snooze behavior (`POST /api/leads/:id/snooze`):
+  - Allowed days: 1, 3, 7
+  - Uses `max(now, existing nextFollowUpAt) + days`
+  - Not allowed for `CONVERTED` or `LOST`
+
 ### Core backend checks (pre-release)
 - `pnpm --filter @lms/server test:all-core`
 - `pnpm --filter @lms/server build`
