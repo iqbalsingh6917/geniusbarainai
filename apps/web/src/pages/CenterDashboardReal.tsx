@@ -3,10 +3,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import Skeleton from '../components/ui/Skeleton';
 import { apiClient } from '../utils/apiClient';
+import AnomaliesPanel from '../components/ops/AnomaliesPanel';
 import { fetchCenterDashboard } from '../api/centerDashboardClient';
 import { OrgDashboardSummary } from '../api/bpDashboardClient';
 import { fetchCenterLeadSummary } from '../api/centerLeadsClient';
 import { formatCurrency, formatPercent } from '../utils/formatters';
+import { fetchOpsAnomalySummary, OpsAnomalySummary } from '../api/opsAnomaliesClient';
 
 type StudentRow = {
   enrollmentId: number;
@@ -30,6 +32,9 @@ const CenterDashboard: React.FC = () => {
   const [leadSummary, setLeadSummary] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [opsSummary, setOpsSummary] = useState<OpsAnomalySummary | null>(null);
+  const [opsLoading, setOpsLoading] = useState(false);
+  const [opsError, setOpsError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -53,6 +58,30 @@ const CenterDashboard: React.FC = () => {
       }
     };
     load();
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadOpsAnomalies() {
+      try {
+        setOpsLoading(true);
+        setOpsError(null);
+        const res = await fetchOpsAnomalySummary();
+        if (!isMounted) return;
+        setOpsSummary(res);
+      } catch (err) {
+        console.error('Failed to load ops anomalies', err);
+        if (!isMounted) return;
+        setOpsError('Failed to load anomalies.');
+        setOpsSummary(null);
+      } finally {
+        if (isMounted) setOpsLoading(false);
+      }
+    }
+    loadOpsAnomalies();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const goToLeads = (stage?: string) => {
@@ -139,6 +168,10 @@ const CenterDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      <div className="mb-6">
+        <AnomaliesPanel summary={opsSummary} loading={opsLoading} error={opsError} maxItems={3} />
+      </div>
 
       {loading ? (
         <div className="flex justify-center items-center h-64">

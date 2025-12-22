@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import Skeleton from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
 import { apiClient } from '../utils/apiClient';
+import AnomaliesPanel from '../components/ops/AnomaliesPanel';
 import { fetchBpDashboard, OrgDashboardSummary } from '../api/bpDashboardClient';
 import { fetchBpLeadSummary, LeadSummaryResponse } from '../api/bpLeadsClient';
 import { formatCurrency } from '../utils/formatters';
+import { fetchOpsAnomalySummary, OpsAnomalySummary } from '../api/opsAnomaliesClient';
 
 interface DashboardData {
   org: {
@@ -37,9 +39,36 @@ const BusinessPartnerDashboard: React.FC = () => {
   const [funnel, setFunnel] = useState<LeadSummaryResponse | null>(null);
   const [loadingFunnel, setLoadingFunnel] = useState(false);
   const [funnelError, setFunnelError] = useState<string | null>(null);
+  const [opsSummary, setOpsSummary] = useState<OpsAnomalySummary | null>(null);
+  const [opsLoading, setOpsLoading] = useState(false);
+  const [opsError, setOpsError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboardData();
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadOpsAnomalies() {
+      try {
+        setOpsLoading(true);
+        setOpsError(null);
+        const res = await fetchOpsAnomalySummary();
+        if (!isMounted) return;
+        setOpsSummary(res);
+      } catch (err) {
+        console.error('Failed to load ops anomalies', err);
+        if (!isMounted) return;
+        setOpsError('Failed to load anomalies.');
+        setOpsSummary(null);
+      } finally {
+        if (isMounted) setOpsLoading(false);
+      }
+    }
+    loadOpsAnomalies();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const goToLeads = (stage?: string) => {
@@ -163,6 +192,10 @@ const BusinessPartnerDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      <div className="mb-8">
+        <AnomaliesPanel summary={opsSummary} loading={opsLoading} error={opsError} maxItems={3} />
+      </div>
 
       {/* Org Info */}
       <div className="bg-white rounded-lg shadow p-6 mb-8">

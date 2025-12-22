@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { apiClient } from '../utils/apiClient';
 import Skeleton from '../components/ui/Skeleton';
+import AnomaliesPanel from '../components/ops/AnomaliesPanel';
 import {
   AssessmentAnalyticsSummary,
   fetchSuperadminAssessmentSummary,
 } from '../api/assessmentAnalyticsClient';
+import { fetchOpsAnomalySummary, OpsAnomalySummary } from '../api/opsAnomaliesClient';
 
 interface DashboardData {
   totals: {
@@ -85,6 +87,9 @@ const SuperadminDashboard: React.FC = () => {
   const [assessmentSummary, setAssessmentSummary] = useState<AssessmentAnalyticsSummary | null>(null);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [assessmentError, setAssessmentError] = useState<string | null>(null);
+  const [opsSummary, setOpsSummary] = useState<OpsAnomalySummary | null>(null);
+  const [opsLoading, setOpsLoading] = useState(false);
+  const [opsError, setOpsError] = useState<string | null>(null);
 
   useEffect(() => {
     // Check if user is authenticated
@@ -95,6 +100,31 @@ const SuperadminDashboard: React.FC = () => {
     
     fetchDashboardData();
   }, [user, token, navigate]);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadOpsAnomalies() {
+      if (!user || !token || user.role !== 'SUPERADMIN') return;
+      try {
+        setOpsLoading(true);
+        setOpsError(null);
+        const res = await fetchOpsAnomalySummary();
+        if (!isMounted) return;
+        setOpsSummary(res);
+      } catch (err) {
+        console.error('Failed to load ops anomalies', err);
+        if (!isMounted) return;
+        setOpsError('Failed to load anomalies.');
+        setOpsSummary(null);
+      } finally {
+        if (isMounted) setOpsLoading(false);
+      }
+    }
+    loadOpsAnomalies();
+    return () => {
+      isMounted = false;
+    };
+  }, [user, token]);
 
   const fetchDashboardData = async () => {
     try {
@@ -270,6 +300,10 @@ const SuperadminDashboard: React.FC = () => {
             Curriculum Builder
           </button>
         </div>
+      </div>
+
+      <div className="mb-8">
+        <AnomaliesPanel summary={opsSummary} loading={opsLoading} error={opsError} maxItems={5} />
       </div>
 
       {/* Assessments Summary */}
