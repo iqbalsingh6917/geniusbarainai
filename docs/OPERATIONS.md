@@ -51,6 +51,20 @@
 - Overdue definition: Student fee records with status `PENDING` or `PARTIAL` and `createdAt` older than 30 days.
 - Actions: treat WARN/CRITICAL as follow-up prompts only; investigate collections, data entry, and enrollment flow.
 
+### Retention assist signals (rule-based)
+- Purpose: surface student risk indicators for teachers/centers (assist only, no automation).
+- Endpoints:
+  - `GET /api/teacher/assist/signals?window=14&limit=&offset=`
+  - `GET /api/center/assist/signals?window=14&limit=&offset=`
+  - `GET /api/student/assist/summary?window=14`
+- Signal codes & thresholds:
+  - `INACTIVITY_RISK` (WARN/CRITICAL): no worksheet attempts in 7 days (WARN) or 14 days (CRITICAL) for active enrollments.
+  - `PERFORMANCE_DROP` (WARN): last 3 attempt avg drops by >= 20 points vs previous 3 (min 6 attempts).
+  - `LOW_ACCURACY_STREAK` (WARN): last 3 attempts avg < 60%.
+  - `OVERDUE_REVIEW` (INFO/WARN): pending reviews older than 3 days (INFO) or 7 days (WARN).
+  - `HIGH_RETRY_PATTERN` (INFO): >2 attempts per worksheet over last 10 attempts.
+- Reminders: signals are guidance only; confirm with student context before acting.
+
 ### Core backend checks (pre-release)
 - `pnpm --filter @lms/server test:all-core`
 - `pnpm --filter @lms/server build`
