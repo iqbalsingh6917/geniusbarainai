@@ -20,3 +20,14 @@ export const createCenterTransactionSchema = z.object({
   method: z.string().optional(),
   notes: z.string().optional()
 });
+
+export const settlementPreviewSchema = z
+  .object({
+    orgUnitId: z.number().int().positive(),
+    periodStart: z.coerce.date(),
+    periodEnd: z.coerce.date(),
+  })
+  .refine((data) => data.periodEnd >= data.periodStart, {
+    message: 'periodEnd must be after periodStart',
+    path: ['periodEnd'],
+  });

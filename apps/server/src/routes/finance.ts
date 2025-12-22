@@ -12,11 +12,14 @@ import {
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
 import { z } from 'zod';
-import { 
-  financeSettingsSchema, 
-  createTransactionSchema, 
-  createCenterTransactionSchema 
+import {
+  financeSettingsSchema,
+  createTransactionSchema,
+  createCenterTransactionSchema,
+  settlementPreviewSchema,
 } from '../schemas/financeSchema';
+import { computeSettlementPreview } from '../services/settlementPreviewService';
+import { isSuperadmin } from '../constants/roles';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -227,6 +230,50 @@ router.post('/transactions', authRequired, superadminOnly, async (req: AuthReque
       return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
     }
     console.error('Error creating transaction:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// POST /api/finance/settlements/preview
+// Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
+router.post('/settlements/preview', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    if (
+      !req.user ||
+      !(isSuperadmin(req.user.role) || isBusinessPartner(req.user.role) || isFranchise(req.user.role) || isCenterManager(req.user.role))
+    ) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
+    }
+
+    const parsed = settlementPreviewSchema.parse(req.body);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+
+    if (!allowedOrgUnits.includes(parsed.orgUnitId)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+    }
+
+    const preview = await computeSettlementPreview({
+      orgUnitId: parsed.orgUnitId,
+      periodStart: parsed.periodStart,
+      periodEnd: parsed.periodEnd,
+    });
+
+    await logAudit(req, {
+      action: 'SETTLEMENT_PREVIEW_VIEWED',
+      entityType: 'Settlement',
+      meta: {
+        orgUnitId: parsed.orgUnitId,
+        periodStart: parsed.periodStart,
+        periodEnd: parsed.periodEnd,
+      },
+    });
+
+    ok(res, preview);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    console.error('Error computing settlement preview:', error);
     fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
   }
 });
