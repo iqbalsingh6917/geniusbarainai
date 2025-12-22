@@ -38,6 +38,19 @@
   - Uses `max(now, existing nextFollowUpAt) + days`
   - Not allowed for `CONVERTED` or `LOST`
 
+### Ops/Finance anomaly flags (rule-based)
+- Purpose: highlight potential operational risks (no automation, no external services).
+- Endpoints:
+  - `GET /api/ops/anomalies/summary?window=30`
+  - `GET /api/ops/anomalies/by-unit?window=30&limit=&offset=` (SUPERADMIN/BP only)
+- Rules and thresholds:
+  - `COLLECTION_DROP` (WARN >= 30%, CRITICAL >= 50%): collections in last `window` days vs prior `window` days.
+  - `DUE_SPIKE` (WARN): outstanding dues increase >= 30% over the last 14 days (based on fee record createdAt).
+  - `PAYMENT_OVERDUE_CLUSTER` (WARN): overdue dues count >= 10 or jump >= 50% vs prior window.
+  - `ZERO_ACTIVITY` (INFO): no enrollments and no collections in the last 14 days.
+- Overdue definition: Student fee records with status `PENDING` or `PARTIAL` and `createdAt` older than 30 days.
+- Actions: treat WARN/CRITICAL as follow-up prompts only; investigate collections, data entry, and enrollment flow.
+
 ### Core backend checks (pre-release)
 - `pnpm --filter @lms/server test:all-core`
 - `pnpm --filter @lms/server build`

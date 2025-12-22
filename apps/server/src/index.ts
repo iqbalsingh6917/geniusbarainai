@@ -58,6 +58,7 @@ import assessmentAnalyticsRoutes from './routes/assessmentAnalytics.routes';
 import abacusExamsRoutes from './routes/abacusExams';
 import orgDashboardRoutes from './routes/orgDashboard.routes';
 import salesLeadsRoutes from './routes/salesLeads.routes';
+import opsAnomaliesRoutes from './routes/opsAnomalies.routes';
 import healthRoutes from './routes/health.routes';
 
 export function createApp() {
@@ -195,6 +196,7 @@ export function createApp() {
   app.use('/api', assessmentAnalyticsRoutes);
   app.use('/api', orgDashboardRoutes);
   app.use('/api', salesLeadsRoutes);
+  app.use('/api', opsAnomaliesRoutes);
   app.use('/api', teacherDashboardRoutes);
   app.use('/api', centerDashboardRoutes);
   app.use('/api', healthRoutes);
