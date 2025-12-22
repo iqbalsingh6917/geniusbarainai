@@ -1,36 +1,65 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LeadListItem, LeadPayload, LeadStage, LeadSummary } from '../../api/salesLeadsClient';
+import { LeadDetail, LeadListFilters, LeadListItem, LeadPayload, LeadStage, LeadSummary } from '../../api/salesLeadsClient';
 import LeadDetailDrawer from './LeadDetailDrawer';
 import Skeleton from '../ui/Skeleton';
 import { useToast } from '../../contexts/ToastContext';
 import { handleErrorToast, parseErrorMessage, parseFieldErrors } from '../../utils/errorHandling';
+import { useAuth } from '../../contexts/AuthContext';
 
 const STAGES: LeadStage[] = ['NEW', 'CONTACTED', 'TRIAL_BOOKED', 'TRIAL_DONE', 'CONVERTED', 'LOST'];
+const STAGE_LABELS: Record<LeadStage, string> = {
+  NEW: 'New',
+  CONTACTED: 'Contacted',
+  TRIAL_BOOKED: 'Demo scheduled',
+  TRIAL_DONE: 'Demo done',
+  CONVERTED: 'Enrolled',
+  LOST: 'Lost',
+};
+const STAGE_FLOW: LeadStage[] = ['NEW', 'CONTACTED', 'TRIAL_BOOKED', 'TRIAL_DONE', 'CONVERTED'];
+
+const getNextStage = (current: LeadStage) => {
+  const idx = STAGE_FLOW.indexOf(current);
+  if (idx === -1 || idx === STAGE_FLOW.length - 1) return null;
+  return STAGE_FLOW[idx + 1];
+};
+
+const getStageOptions = (current: LeadStage) => {
+  const options: LeadStage[] = [current];
+  const next = getNextStage(current);
+  if (next && !options.includes(next)) options.push(next);
+  if (current !== 'LOST' && !options.includes('LOST')) options.push('LOST');
+  return options;
+};
 
 type LeadsPageBaseProps = {
   title: string;
   summaryLoader: () => Promise<LeadSummary>;
-  listLoader: (page?: number, pageSize?: number) => Promise<{
+  listLoader: (filters?: LeadListFilters) => Promise<{
     items: LeadListItem[];
     total: number;
     page: number;
     pageSize: number;
   }>;
+  fetchLead: (id: number) => Promise<LeadDetail>;
   createLead: (payload: LeadPayload) => Promise<LeadListItem>;
   updateLead: (id: number, payload: Partial<LeadPayload>) => Promise<LeadListItem>;
-  updateStage: (id: number, stage: LeadStage) => Promise<LeadListItem>;
+  updateStage: (id: number, payload: { stage: LeadStage; lostReason?: string }) => Promise<LeadListItem>;
+  assignLead: (id: number, assignedToUserId: number | null) => Promise<LeadListItem>;
 };
 
 const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   title,
   summaryLoader,
   listLoader,
+  fetchLead,
   createLead,
   updateLead,
   updateStage,
+  assignLead,
 }) => {
   const { showToast } = useToast();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [summary, setSummary] = useState<LeadSummary | null>(null);
   const [leads, setLeads] = useState<LeadListItem[]>([]);
@@ -39,22 +68,57 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string>(searchParams.get('stage') || '');
   const [search, setSearch] = useState('');
+  const [assignedFilter, setAssignedFilter] = useState<'all' | 'me' | 'unassigned'>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<LeadListItem | null>(null);
+  const [selectedLead, setSelectedLead] = useState<LeadDetail | null>(null);
   const [creating, setCreating] = useState(false);
-  const [createForm, setCreateForm] = useState<LeadPayload>({ firstName: '', stage: 'NEW' });
+  const [createForm, setCreateForm] = useState<LeadPayload>({ firstName: '', stage: 'NEW', lostReason: '' });
   const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    loadData();
+    loadSummary();
   }, []);
 
-  const loadData = async () => {
+  useEffect(() => {
+    setPage(1);
+  }, [stageFilter, search, assignedFilter, dateFrom, dateTo]);
+
+  useEffect(() => {
+    loadList();
+  }, [page, stageFilter, search, assignedFilter, dateFrom, dateTo]);
+
+  const loadSummary = async () => {
+    try {
+      setLoadingSummary(true);
+      const summaryRes = await summaryLoader();
+      setSummary(summaryRes);
+    } catch (err) {
+      console.error('Failed to load lead summary', err);
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
+
+  const loadList = async () => {
     try {
       setLoading(true);
-      const [summaryRes, listRes] = await Promise.all([summaryLoader(), listLoader()]);
-      setSummary(summaryRes);
+      const filters: LeadListFilters = {
+        stage: stageFilter ? (stageFilter as LeadStage) : undefined,
+        assignedTo: assignedFilter === 'all' ? undefined : assignedFilter,
+        q: search.trim() || undefined,
+        from: dateFrom || undefined,
+        to: dateTo || undefined,
+        page,
+        pageSize,
+      };
+      const listRes = await listLoader(filters);
       setLeads(listRes.items);
+      setTotal(listRes.total);
       setError(null);
     } catch (err: any) {
       console.error('Failed to load leads', err);
@@ -65,37 +129,22 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   };
 
   const refreshSummary = async () => {
-    try {
-      setLoadingSummary(true);
-      const res = await summaryLoader();
-      setSummary(res);
-    } catch (err) {
-      console.error('Failed to refresh lead summary', err);
-    } finally {
-      setLoadingSummary(false);
-    }
+    await loadSummary();
   };
-
-  const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
-      const matchesStage = stageFilter ? (lead.stage || '').toUpperCase() === stageFilter.toUpperCase() : true;
-      const term = search.toLowerCase();
-      const matchesSearch =
-        !term ||
-        [lead.firstName, lead.lastName, lead.contactEmail, lead.contactPhone]
-          .filter(Boolean)
-          .some((v) => (v as string).toLowerCase().includes(term));
-      return matchesStage && matchesSearch;
-    });
-  }, [leads, stageFilter, search]);
 
   const handleCreate = async () => {
     setCreating(true);
   };
 
-  const openDrawer = (lead: LeadListItem) => {
+  const openDrawer = async (lead: LeadListItem) => {
     setSelectedLead(lead);
     setDrawerOpen(true);
+    try {
+      const detail = await fetchLead(lead.id);
+      setSelectedLead(detail);
+    } catch (err) {
+      handleErrorToast(err, showToast, 'Could not load lead details');
+    }
   };
 
   const handleSave = async (payload: Partial<LeadPayload>) => {
@@ -103,6 +152,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
     try {
       const updated = await updateLead(selectedLead.id, payload);
       setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
+      setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       await refreshSummary();
       showToast('Lead updated', 'success');
     } catch (err) {
@@ -111,17 +161,50 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
     }
   };
 
-  const handleStageChange = async (stage: LeadStage, leadId?: number) => {
+  const handleStageChange = async (stage: LeadStage, leadId?: number, lostReasonOverride?: string) => {
     const targetId = leadId ?? selectedLead?.id;
     if (!targetId) return;
+    let lostReason: string | undefined;
+    if (stage === 'LOST') {
+      const reason = lostReasonOverride ?? window.prompt('Enter lost reason');
+      if (!reason) {
+        showToast('Lost reason is required', 'error');
+        return;
+      }
+      lostReason = reason;
+    }
     try {
-      const updated = await updateStage(targetId, stage);
+      const updated = await updateStage(targetId, { stage, lostReason });
       setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
+      setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
       await refreshSummary();
-      showToast(`Stage set to ${stage}`, 'success');
+      showToast(`Stage set to ${STAGE_LABELS[stage]}`, 'success');
     } catch (err) {
       handleErrorToast(err, showToast, 'Could not update lead stage');
       throw err;
+    }
+  };
+
+  const handleAssignToMe = async (leadId: number) => {
+    if (!user?.id) return;
+    try {
+      const updated = await assignLead(leadId, user.id);
+      setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
+      setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+      showToast('Lead assigned', 'success');
+    } catch (err) {
+      handleErrorToast(err, showToast, 'Could not assign lead');
+    }
+  };
+
+  const handleAssign = async (assignedToUserId: number | null) => {
+    if (!selectedLead) return;
+    try {
+      const updated = await assignLead(selectedLead.id, assignedToUserId);
+      setLeads((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
+      setSelectedLead((prev) => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev));
+    } catch (err) {
+      handleErrorToast(err, showToast, 'Could not update assignment');
     }
   };
 
@@ -132,12 +215,16 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       setCreateErrors({ firstName: 'Name is required' });
       return;
     }
+    if (createForm.stage === 'LOST' && !createForm.lostReason?.trim()) {
+      setCreateErrors({ lostReason: 'Lost reason is required' });
+      return;
+    }
     try {
       const created = await createLead(createForm);
       setLeads((prev) => [created, ...prev]);
       await refreshSummary();
       showToast('Lead created', 'success');
-      setCreateForm({ firstName: '', lastName: '', contactEmail: '', contactPhone: '', stage: 'NEW' });
+      setCreateForm({ firstName: '', lastName: '', contactEmail: '', contactPhone: '', stage: 'NEW', lostReason: '' });
       setCreating(false);
     } catch (err) {
       const fields = parseFieldErrors(err);
@@ -155,6 +242,14 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
       return params;
     });
   };
+
+  const formatAssignedLabel = (lead: LeadListItem) => {
+    if (!lead.assignedToUserId) return 'Unassigned';
+    if (lead.assignedToUserId === user?.id) return 'Me';
+    return `User #${lead.assignedToUserId}`;
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   if (loading) {
     return (
@@ -201,16 +296,39 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
           />
           <select
             className="form-control"
+            value={assignedFilter}
+            onChange={(e) => setAssignedFilter(e.target.value as 'all' | 'me' | 'unassigned')}
+          >
+            <option value="all">All assignments</option>
+            <option value="me">Assigned to me</option>
+            <option value="unassigned">Unassigned</option>
+          </select>
+          <select
+            className="form-control"
             value={stageFilter}
             onChange={(e) => setStageFromCard(e.target.value)}
           >
             <option value="">All stages</option>
             {STAGES.map((s) => (
               <option key={s} value={s}>
-                {s.replace('_', ' ')}
+                {STAGE_LABELS[s]}
               </option>
             ))}
           </select>
+          <input
+            className="form-control"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            aria-label="Updated from date"
+          />
+          <input
+            className="form-control"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            aria-label="Updated to date"
+          />
           <button className="btn btn-primary btn-sm" onClick={handleCreate} aria-label="Create lead">
             New lead
           </button>
@@ -226,9 +344,9 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
             }`}
             onClick={() => setStageFromCard(s)}
           >
-            <div className="text-sm text-gray-600">{s.replace('_', ' ')}</div>
+            <div className="text-sm text-gray-600">{STAGE_LABELS[s]}</div>
             <div className="text-xl font-semibold">
-              {loadingSummary ? '…' : summary?.byStage?.[s] ?? 0}
+              {loadingSummary ? '...' : summary?.byStage?.[s] ?? 0}
             </div>
           </div>
         ))}
@@ -236,26 +354,27 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
 
       <div className="bg-white rounded shadow">
         <div className="overflow-x-auto">
-              <table className="min-w-full table-auto">
-                <thead>
-                  <tr className="bg-gray-100 text-left text-sm text-gray-600">
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Contact</th>
+          <table className="min-w-full table-auto">
+            <thead>
+              <tr className="bg-gray-100 text-left text-sm text-gray-600">
+                <th className="px-3 py-2">Name</th>
+                <th className="px-3 py-2">Phone</th>
                 <th className="px-3 py-2">Stage</th>
-                <th className="px-3 py-2">Source</th>
+                <th className="px-3 py-2">Assigned</th>
+                <th className="px-3 py-2">Next Follow-up</th>
                 <th className="px-3 py-2">Updated</th>
                 <th className="px-3 py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredLeads.length === 0 && (
+              {leads.length === 0 && (
                 <tr>
-                  <td className="px-3 py-4 text-sm text-gray-500" colSpan={6}>
-                    No leads match your filters. Adjust stage/search or add a new lead.
+                  <td className="px-3 py-4 text-sm text-gray-500" colSpan={7}>
+                    No leads match your filters. Adjust filters or add a new lead.
                   </td>
                 </tr>
               )}
-              {filteredLeads.map((lead) => (
+              {leads.map((lead) => (
                 <tr key={lead.id} className="border-t text-sm">
                   <td className="px-3 py-2 font-medium">
                     {lead.firstName} {lead.lastName || ''}
@@ -264,8 +383,11 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
                     <div>{lead.contactPhone || '-'}</div>
                     <div className="text-xs text-gray-500">{lead.contactEmail || ''}</div>
                   </td>
-                  <td className="px-3 py-2">{lead.stage || 'NEW'}</td>
-                  <td className="px-3 py-2">{lead.source || '-'}</td>
+                  <td className="px-3 py-2">{lead.stage ? STAGE_LABELS[lead.stage] : 'New'}</td>
+                  <td className="px-3 py-2">{formatAssignedLabel(lead)}</td>
+                  <td className="px-3 py-2">
+                    {lead.nextFollowUpAt ? new Date(lead.nextFollowUpAt).toLocaleDateString() : '-'}
+                  </td>
                   <td className="px-3 py-2">
                     {lead.updatedAt ? new Date(lead.updatedAt).toLocaleDateString() : '-'}
                   </td>
@@ -279,12 +401,17 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
                           await handleStageChange(newStage, lead.id);
                         }}
                       >
-                        {STAGES.map((s) => (
+                        {getStageOptions((lead.stage as LeadStage) || 'NEW').map((s) => (
                           <option key={s} value={s}>
-                            {s.replace('_', ' ')}
+                            {STAGE_LABELS[s]}
                           </option>
                         ))}
                       </select>
+                      {user?.id && lead.assignedToUserId !== user.id && (
+                        <button className="btn btn-outline btn-sm" onClick={() => handleAssignToMe(lead.id)}>
+                          Assign to me
+                        </button>
+                      )}
                       <button className="btn btn-outline btn-sm" onClick={() => openDrawer(lead)}>
                         View / Edit
                       </button>
@@ -295,7 +422,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
             </tbody>
           </table>
         </div>
-        {filteredLeads.length === 0 && (
+        {leads.length === 0 && (
           <div className="p-6 text-center text-gray-600">
             <p className="mb-2">No leads match your filters yet.</p>
             <button className="btn btn-primary btn-sm" onClick={handleCreate}>
@@ -303,6 +430,23 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
             </button>
           </div>
         )}
+        <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-gray-600">
+          <div>
+            Page {page} of {totalPages} - {total} leads
+          </div>
+          <div className="flex gap-2">
+            <button className="btn btn-outline btn-sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+              Prev
+            </button>
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
 
       <LeadDetailDrawer
@@ -310,7 +454,8 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onSave={handleSave}
-        onStageChange={(stage) => handleStageChange(stage)}
+        onStageChange={(stage, lostReason) => handleStageChange(stage, undefined, lostReason)}
+        onAssign={handleAssign}
       />
 
       {creating && (
@@ -319,7 +464,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-lg font-semibold">Create Lead</h3>
               <button className="text-gray-500" onClick={() => setCreating(false)} aria-label="Close create lead form">
-                ✕
+                x
               </button>
             </div>
             <form onSubmit={submitCreateForm} className="p-6 space-y-4">
@@ -351,12 +496,23 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
                   >
                     {STAGES.map((s) => (
                       <option key={s} value={s}>
-                        {s.replace('_', ' ')}
+                            {STAGE_LABELS[s]}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
+              {createForm.stage === 'LOST' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Lost reason</label>
+                  <input
+                    className="form-control mt-1"
+                    value={createForm.lostReason || ''}
+                    onChange={(e) => setCreateForm({ ...createForm, lostReason: e.target.value })}
+                  />
+                  {createErrors.lostReason && <p className="text-sm text-red-600 mt-1">{createErrors.lostReason}</p>}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Email</label>

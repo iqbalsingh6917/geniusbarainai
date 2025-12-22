@@ -6,6 +6,23 @@ const isDemoSeed = process.env.DEMO_SEED === 'true';
 
 type QuestionGenType = 'NO_CARRY' | 'FIVE_COMBO' | 'MIXED' | 'SPEED';
 type SubQuestionType = 'NO_BORROW' | 'BORROW_PATTERN' | 'SUB_MIXED' | 'SUB_SPEED';
+type CourseSeed = {
+  code: string;
+  name: string;
+  variant: string;
+  description: string;
+  ageBand?: string;
+  durationWeeks?: number;
+  difficultyBand?: string;
+  feeAmount?: number;
+  feeCurrency?: string;
+};
+type CommissionRuleSeed = {
+  orgUnitId: number;
+  type: 'LEAD' | 'ENROLLMENT';
+  amount: number;
+  currency?: string;
+};
 
 const pairBanks: Record<QuestionGenType, Array<[number, number]>> = {
   NO_CARRY: [
@@ -242,6 +259,166 @@ function buildSubQuestionsFor(levelOrder: number, kind: string) {
   return generateSubQuestions('SUB_SPEED', 30);
 }
 
+async function upsertCourse(config: CourseSeed) {
+  return prisma.abacusCourse.upsert({
+    where: { code: config.code },
+    update: {
+      name: config.name,
+      variant: config.variant,
+      description: config.description,
+      ageBand: config.ageBand,
+      durationWeeks: config.durationWeeks,
+      difficultyBand: config.difficultyBand,
+      feeAmount: config.feeAmount,
+      feeCurrency: config.feeCurrency,
+    },
+    create: {
+      code: config.code,
+      name: config.name,
+      variant: config.variant,
+      description: config.description,
+      ageBand: config.ageBand,
+      durationWeeks: config.durationWeeks,
+      difficultyBand: config.difficultyBand,
+      feeAmount: config.feeAmount,
+      feeCurrency: config.feeCurrency,
+    },
+  });
+}
+
+async function upsertCommissionRule(seed: CommissionRuleSeed) {
+  const existing = await prisma.commissionRule.findFirst({
+    where: { orgUnitId: seed.orgUnitId, type: seed.type },
+  });
+
+  if (existing) {
+    return prisma.commissionRule.update({
+      where: { id: existing.id },
+      data: {
+        amount: seed.amount,
+        currency: seed.currency ?? existing.currency,
+        isActive: true,
+      },
+    });
+  }
+
+  return prisma.commissionRule.create({
+    data: {
+      orgUnitId: seed.orgUnitId,
+      type: seed.type,
+      amount: seed.amount,
+      currency: seed.currency ?? 'INR',
+      isActive: true,
+    },
+  });
+}
+
+async function cloneCourseStructure(sourceCourseId: number, targetCourseId: number) {
+  const existingModules = await prisma.abacusModule.findMany({
+    where: { courseId: targetCourseId },
+    select: { id: true },
+  });
+  if (existingModules.length > 0) {
+    return;
+  }
+
+  const sourceModules = await prisma.abacusModule.findMany({
+    where: { courseId: sourceCourseId },
+    include: {
+      levels: {
+        include: {
+          worksheets: {
+            include: {
+              questions: {
+                include: { options: true },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { index: 'asc' },
+  });
+
+  for (const module of sourceModules) {
+    const newModule = await prisma.abacusModule.create({
+      data: {
+        courseId: targetCourseId,
+        index: module.index,
+        title: module.title,
+        summary: module.summary,
+        skillFocus: module.skillFocus,
+      },
+    });
+
+    for (const level of module.levels) {
+      const newLevel = await prisma.abacusLevel.create({
+        data: {
+          moduleId: newModule.id,
+          moduleCode: level.moduleCode,
+          order: level.order,
+          name: level.name,
+          difficulty: level.difficulty,
+          ageGroup: level.ageGroup,
+          operations: level.operations,
+          formulas: level.formulas,
+          visualization: level.visualization,
+          maxDigits: level.maxDigits,
+          maxTerms: level.maxTerms,
+          examDurationMin: level.examDurationMin,
+          passingPercent: level.passingPercent,
+          maxMarks: level.maxMarks,
+          timeBonusEnabled: level.timeBonusEnabled,
+          scoringRules: level.scoringRules,
+          notes: level.notes,
+          isActive: level.isActive,
+        },
+      });
+
+      for (const worksheet of level.worksheets) {
+        const newWorksheet = await prisma.abacusWorksheet.create({
+          data: {
+            levelId: newLevel.id,
+            title: worksheet.title,
+            kind: worksheet.kind,
+            difficultyBand: worksheet.difficultyBand,
+            questionCount: worksheet.questionCount,
+            notes: worksheet.notes,
+            generationMode: worksheet.generationMode,
+            generationConfig: worksheet.generationConfig,
+          },
+        });
+
+        for (const question of worksheet.questions) {
+          const newQuestion = await prisma.worksheetQuestion.create({
+            data: {
+              worksheetId: newWorksheet.id,
+              orderIndex: question.orderIndex,
+              questionType: question.questionType,
+              prompt: question.prompt,
+              imageUrl: question.imageUrl,
+              correctAnswer: question.correctAnswer,
+              correctText: question.correctText,
+              correctNum: question.correctNum,
+              maxMarks: question.maxMarks,
+            },
+          });
+
+          if (question.options.length > 0) {
+            await prisma.worksheetOption.createMany({
+              data: question.options.map((opt) => ({
+                questionId: newQuestion.id,
+                text: opt.text,
+                isCorrect: opt.isCorrect,
+              })),
+            });
+          }
+        }
+      }
+    }
+  }
+}
+
 async function main() {
   // Create SUPERADMIN user
   const saltRounds = 10;
@@ -397,80 +574,110 @@ async function main() {
   });
   console.log(`Created/Updated TEACHER user ${teacherUser.username}`);
   
-  // Create Abacus Course
-  const course = await prisma.abacusCourse.upsert({
-    where: { code: 'ABACUS_L1_REGULAR' },
-    update: {},
-    create: {
+  const courseConfigs: CourseSeed[] = [
+    {
       code: 'ABACUS_L1_REGULAR',
       name: 'Abacus Level 1 (Regular)',
       variant: 'REGULAR',
       description: 'Introduction to abacus learning for beginners',
+      ageBand: '7-9',
+      durationWeeks: 16,
+      difficultyBand: 'FOUNDATION',
+      feeAmount: 12000,
+      feeCurrency: 'INR',
     },
-  });
-  
-  console.log(`Created/Updated Abacus Course with id: ${course.id}`);
+    {
+      code: 'ABACUS_L1_JUNIOR',
+      name: 'Abacus Level 1 (Junior)',
+      variant: 'JUNIOR',
+      description: 'Junior track with slower pacing and guided practice',
+      ageBand: '5-7',
+      durationWeeks: 20,
+      difficultyBand: 'FOUNDATION',
+      feeAmount: 10000,
+      feeCurrency: 'INR',
+    },
+    {
+      code: 'ABACUS_L1_SENIOR',
+      name: 'Abacus Level 1 (Senior)',
+      variant: 'SENIOR',
+      description: 'Senior track with accelerated pacing',
+      ageBand: '9-12',
+      durationWeeks: 14,
+      difficultyBand: 'ADVANCED',
+      feeAmount: 14000,
+      feeCurrency: 'INR',
+    },
+  ];
+
+  const courseByCode = new Map<string, Awaited<ReturnType<typeof upsertCourse>>>();
+  const baseCourse = await upsertCourse(courseConfigs[0]);
+  courseByCode.set(baseCourse.code, baseCourse);
+  const courseById = new Map<number, Awaited<ReturnType<typeof upsertCourse>>>();
+  courseById.set(baseCourse.id, baseCourse);
+  console.log(`Created/Updated Abacus Course with id: ${baseCourse.id}`);
+  const baseFeeAmount = baseCourse.feeAmount ?? 12000;
   
   // Create Abacus Modules
   const modulesData = [
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 1,
       title: 'Holding practice',
       summary: 'Learn the basics of abacus and finger techniques',
       skillFocus: 'Finger techniques and basic bead manipulation',
     },
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 2,
       title: 'Addition 1-digit',
       summary: 'Master addition of single-digit numbers',
       skillFocus: '1-digit addition',
     },
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 3,
       title: 'Subtraction 1-digit',
       summary: 'Master subtraction of single-digit numbers',
       skillFocus: '1-digit subtraction',
     },
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 4,
       title: '2-digit operations',
       summary: 'Practice addition and subtraction together',
       skillFocus: 'Mixed 2-digit operations',
     },
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 5,
       title: 'Mixed 2-digit',
       summary: 'Learn addition of two-digit numbers',
       skillFocus: 'Mixed 2-digit operations',
     },
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 6,
       title: 'Carry / Borrow basics',
       summary: 'Learn subtraction of two-digit numbers',
       skillFocus: 'Carry and borrow techniques',
     },
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 7,
       title: '3-digit operations',
       summary: 'Practice addition and subtraction of two-digit numbers',
       skillFocus: '3-digit operations',
     },
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 8,
       title: 'Speed enhancement',
       summary: 'Improve calculation speed and accuracy',
       skillFocus: 'Speed and accuracy',
     },
     {
-      courseId: course.id,
+      courseId: baseCourse.id,
       index: 9,
       title: 'Exam revision',
       summary: 'Comprehensive review of all Level 1 concepts',
@@ -681,6 +888,32 @@ async function main() {
   console.log(`\nTotal worksheets created: ${totalWorksheets}`);
   console.log(`Total questions seeded for Module 2: ${module2Questions}`);
   console.log(`Total questions seeded for Module 3: ${module3Questions}`);
+
+  // Clone L1 Regular into Junior/Senior tracks
+  for (const config of courseConfigs.slice(1)) {
+    const targetCourse = await upsertCourse(config);
+    await cloneCourseStructure(baseCourse.id, targetCourse.id);
+    courseByCode.set(targetCourse.code, targetCourse);
+    courseById.set(targetCourse.id, targetCourse);
+    console.log(`Ensured course clone for ${config.code} with id: ${targetCourse.id}`);
+  }
+
+  const commissionRuleSeeds: CommissionRuleSeed[] = [
+    { orgUnitId: bp001.id, type: 'LEAD', amount: 200 },
+    { orgUnitId: bp001.id, type: 'ENROLLMENT', amount: 500 },
+    { orgUnitId: fr001.id, type: 'LEAD', amount: 150 },
+    { orgUnitId: fr001.id, type: 'ENROLLMENT', amount: 400 },
+    { orgUnitId: ce001.id, type: 'LEAD', amount: 100 },
+    { orgUnitId: ce001.id, type: 'ENROLLMENT', amount: 300 },
+  ];
+
+  const commissionRules = await Promise.all(
+    commissionRuleSeeds.map((seed) => upsertCommissionRule(seed))
+  );
+  const commissionRuleByKey = new Map<string, (typeof commissionRules)[number]>();
+  for (const rule of commissionRules) {
+    commissionRuleByKey.set(`${rule.orgUnitId}:${rule.type}`, rule);
+  }
   
   // Create Sample Students
   console.log('\nCreating sample students...');
@@ -740,6 +973,28 @@ async function main() {
       status: 'ACTIVE',
       orgUnitId: ce001.id, // Link to CE001
     },
+    {
+      code: 'ST0006',
+      firstName: 'Myra',
+      lastName: 'Bansal',
+      age: 6,
+      parentName: 'Ritika Bansal',
+      contactPhone: '+91 98765 43215',
+      contactEmail: 'ritika.bansal@email.com',
+      status: 'ACTIVE',
+      orgUnitId: ce001.id,
+    },
+    {
+      code: 'ST0007',
+      firstName: 'Dev',
+      lastName: 'Mehta',
+      age: 10,
+      parentName: 'Sanjay Mehta',
+      contactPhone: '+91 98765 43216',
+      contactEmail: 'sanjay.mehta@email.com',
+      status: 'ACTIVE',
+      orgUnitId: ce001.id,
+    },
   ];
   
   const createdStudents = [];
@@ -758,17 +1013,17 @@ async function main() {
   
   // Create Sample Enrollments
   console.log('\nCreating sample enrollments...');
-  const enrollmentsData = [];
-  
-  for (const student of createdStudents) {
-    // Check if enrollment already exists
+  const enrollmentsData: any[] = [];
+  const baseEnrollmentStudents = createdStudents.slice(0, 3);
+
+  for (const student of baseEnrollmentStudents) {
     const existingEnrollment = await prisma.abacusEnrollment.findFirst({
       where: {
         studentId: student.id,
-        courseId: course.id,
+        courseId: baseCourse.id,
       },
     });
-    
+
     let enrollment;
     if (existingEnrollment) {
       enrollment = existingEnrollment;
@@ -777,19 +1032,77 @@ async function main() {
       enrollment = await prisma.abacusEnrollment.create({
         data: {
           studentId: student.id,
-          courseId: course.id,
-          currentModuleId: createdModules[0].id, // Start with first module
-          currentLevelId: null, // Will be set after we create assessments
+          courseId: baseCourse.id,
+          currentModuleId: createdModules[0].id,
+          currentLevelId: null,
           status: 'ONGOING',
           startDate: new Date(),
           notes: 'New batch - evening slot',
-          orgUnitId: ce001.id, // Link to CE001
+          orgUnitId: ce001.id,
         },
       });
       console.log(`Created Enrollment with id: ${enrollment.id}`);
     }
-    
+
     enrollmentsData.push(enrollment);
+  }
+
+  const juniorCourse = courseByCode.get('ABACUS_L1_JUNIOR');
+  const seniorCourse = courseByCode.get('ABACUS_L1_SENIOR');
+  const juniorStudent = createdStudents[5];
+  const seniorStudent = createdStudents[6];
+
+  let juniorEnrollment: any = null;
+  let seniorEnrollment: any = null;
+
+  if (juniorCourse && juniorStudent) {
+    const juniorModules = await prisma.abacusModule.findMany({
+      where: { courseId: juniorCourse.id },
+      orderBy: { index: 'asc' },
+    });
+    const existingJuniorEnrollment = await prisma.abacusEnrollment.findFirst({
+      where: { studentId: juniorStudent.id, courseId: juniorCourse.id },
+    });
+    juniorEnrollment =
+      existingJuniorEnrollment ??
+      (await prisma.abacusEnrollment.create({
+        data: {
+          studentId: juniorStudent.id,
+          courseId: juniorCourse.id,
+          currentModuleId: juniorModules[0]?.id ?? null,
+          currentLevelId: null,
+          status: 'ONGOING',
+          startDate: new Date(),
+          notes: 'Junior track - morning slot',
+          orgUnitId: ce001.id,
+        },
+      }));
+    enrollmentsData.push(juniorEnrollment);
+  }
+
+  if (seniorCourse && seniorStudent) {
+    const seniorModules = await prisma.abacusModule.findMany({
+      where: { courseId: seniorCourse.id },
+      orderBy: { index: 'asc' },
+    });
+    const existingSeniorEnrollment = await prisma.abacusEnrollment.findFirst({
+      where: { studentId: seniorStudent.id, courseId: seniorCourse.id },
+    });
+    seniorEnrollment =
+      existingSeniorEnrollment ??
+      (await prisma.abacusEnrollment.create({
+        data: {
+          studentId: seniorStudent.id,
+          courseId: seniorCourse.id,
+          currentModuleId: seniorModules[0]?.id ?? null,
+          currentLevelId: null,
+          status: 'ONGOING',
+          startDate: new Date(),
+          notes: 'Senior track - weekend slot',
+          orgUnitId: ce001.id,
+        },
+      }));
+    enrollmentsData.push(seniorEnrollment);
   }
   
   console.log(`Seeded ${enrollmentsData.length} enrollments`);
@@ -804,7 +1117,7 @@ async function main() {
       SELECT l.* 
       FROM "AbacusLevel" l
       JOIN "AbacusModule" m ON l."moduleId" = m."id"
-      WHERE m."courseId" = ${course.id}
+      WHERE m."courseId" = ${enrollment.courseId}
       ORDER BY m."index", l."order"
     `;
     
@@ -851,17 +1164,73 @@ async function main() {
     await prisma.lead.deleteMany({});
     await prisma.paymentTransaction.deleteMany({ where: { orgUnitId: ce001.id } });
     await prisma.studentFeeRecord.deleteMany({ where: { orgUnitId: ce001.id } });
+    const demoEnrollmentIds = enrollmentsData.map((enrollment) => enrollment.id);
+    if (demoEnrollmentIds.length > 0) {
+      await prisma.moduleAttempt.deleteMany({ where: { enrollmentId: { in: demoEnrollmentIds } } });
+      await prisma.worksheetAttempt.deleteMany({ where: { enrollmentId: { in: demoEnrollmentIds } } });
+      await prisma.studentWorksheetAttempt.deleteMany({
+        where: { enrollmentId: { in: demoEnrollmentIds } },
+      });
+    }
+
+    const juniorFeeAmount = juniorCourse?.feeAmount ?? baseFeeAmount;
+    const seniorFeeAmount = seniorCourse?.feeAmount ?? baseFeeAmount;
+
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
 
     const demoLeads = [
-      { firstName: 'Sanya', lastName: 'Malhotra', contactEmail: 'sanya@example.com', stage: 'NEW', source: 'CAMPAIGN' },
-      { firstName: 'Kabir', lastName: 'Singh', contactPhone: '+91-9915100011', stage: 'CONTACTED', source: 'REFERRAL' },
-      { firstName: 'Ishaan', lastName: 'Khurana', contactEmail: 'ishaan@parent.com', stage: 'TRIAL_DONE', source: 'WALK_IN' },
-      { firstName: 'Meera', lastName: 'Bedi', contactPhone: '+91-9815900099', stage: 'CONVERTED', source: 'WHATSAPP' },
-      { firstName: 'Rhea', lastName: 'Kapoor', contactEmail: 'rhea@demo.com', stage: 'LOST', source: 'OTHER' },
+      {
+        firstName: 'Sanya',
+        lastName: 'Malhotra',
+        contactEmail: 'sanya@example.com',
+        stage: 'NEW',
+        source: 'CAMPAIGN',
+        city: 'Delhi',
+        nextFollowUpAt: tomorrow,
+      },
+      {
+        firstName: 'Kabir',
+        lastName: 'Singh',
+        contactPhone: '+91-9915100011',
+        stage: 'CONTACTED',
+        source: 'REFERRAL',
+        city: 'Jaipur',
+        nextFollowUpAt: yesterday,
+      },
+      {
+        firstName: 'Ishaan',
+        lastName: 'Khurana',
+        contactEmail: 'ishaan@parent.com',
+        stage: 'TRIAL_DONE',
+        source: 'WALK_IN',
+        city: 'Chandigarh',
+      },
+      {
+        firstName: 'Meera',
+        lastName: 'Bedi',
+        contactPhone: '+91-9815900099',
+        stage: 'CONVERTED',
+        source: 'WHATSAPP',
+        city: 'Mumbai',
+      },
+      {
+        firstName: 'Rhea',
+        lastName: 'Kapoor',
+        contactEmail: 'rhea@demo.com',
+        stage: 'LOST',
+        source: 'OTHER',
+        city: 'Pune',
+        lostReason: 'No response after demo',
+      },
     ];
+    const demoLeadsCreated: Array<{ id: number; stage: string }> = [];
 
     for (const lead of demoLeads) {
-      await prisma.lead.create({
+      const createdLead = await prisma.lead.create({
         data: {
           ...lead,
           orgUnitId: ce001.id,
@@ -871,6 +1240,7 @@ async function main() {
           lastStageChangedBy: centerManager.id,
         },
       });
+      demoLeadsCreated.push({ id: createdLead.id, stage: createdLead.stage });
     }
     console.log(`Seeded ${demoLeads.length} demo leads for CE001`);
 
@@ -881,7 +1251,7 @@ async function main() {
           studentId: enrollment.studentId,
           enrollmentId: enrollment.id,
           orgUnitId: ce001.id,
-          amount: 12000,
+          amount: baseFeeAmount,
           status: 'PENDING',
         },
       });
@@ -891,7 +1261,7 @@ async function main() {
     if (feeRecords.length > 0) {
       await prisma.studentFeeRecord.update({
         where: { id: feeRecords[0].id },
-        data: { status: 'PARTIAL', amount: 6000 },
+        data: { status: 'PARTIAL', amount: Math.round(baseFeeAmount / 2) },
       });
       console.log('Marked first fee record as PARTIAL for quick demos');
     }
@@ -899,12 +1269,234 @@ async function main() {
     await prisma.paymentTransaction.create({
       data: {
         orgUnitId: ce001.id,
-        amount: 6000,
+        amount: Math.round(baseFeeAmount / 2),
         type: 'CREDIT',
         method: 'UPI',
         notes: 'Demo upfront payment',
       },
     });
+
+    if (juniorEnrollment) {
+      await prisma.studentFeeRecord.create({
+        data: {
+          studentId: juniorEnrollment.studentId,
+          enrollmentId: juniorEnrollment.id,
+          orgUnitId: ce001.id,
+          amount: juniorFeeAmount,
+          status: 'PAID',
+        },
+      });
+
+      await prisma.paymentTransaction.create({
+        data: {
+          orgUnitId: ce001.id,
+          amount: juniorFeeAmount,
+          type: 'CREDIT',
+          method: 'BANK',
+          notes: 'Junior track full payment',
+        },
+      });
+    }
+
+    if (seniorEnrollment) {
+      await prisma.studentFeeRecord.create({
+        data: {
+          studentId: seniorEnrollment.studentId,
+          enrollmentId: seniorEnrollment.id,
+          orgUnitId: ce001.id,
+          amount: seniorFeeAmount,
+          status: 'PENDING',
+        },
+      });
+    }
+
+    if (juniorEnrollment && juniorCourse) {
+      const juniorWorksheet = await prisma.abacusWorksheet.findFirst({
+        where: { level: { module: { courseId: juniorCourse.id } } },
+        orderBy: { id: 'asc' },
+      });
+      if (juniorWorksheet) {
+        await prisma.worksheetAttempt.upsert({
+          where: {
+            enrollmentId_worksheetId: {
+              enrollmentId: juniorEnrollment.id,
+              worksheetId: juniorWorksheet.id,
+            },
+          },
+          update: {
+            status: 'COMPLETED',
+            completedAt: new Date(),
+          },
+          create: {
+            enrollmentId: juniorEnrollment.id,
+            worksheetId: juniorWorksheet.id,
+            status: 'COMPLETED',
+            startedAt: new Date(),
+            completedAt: new Date(),
+          },
+        });
+        await prisma.studentWorksheetAttempt.create({
+          data: {
+            studentId: juniorEnrollment.studentId,
+            worksheetId: juniorWorksheet.id,
+            enrollmentId: juniorEnrollment.id,
+            status: 'COMPLETED',
+            startedAt: new Date(),
+            submittedAt: new Date(),
+            totalScore: 18,
+            maxScore: 20,
+            autoGraded: true,
+          },
+        });
+      }
+      await prisma.moduleAttempt.upsert({
+        where: {
+          enrollmentId_courseCode_moduleIndex: {
+            enrollmentId: juniorEnrollment.id,
+            courseCode: juniorCourse.code,
+            moduleIndex: 1,
+          },
+        },
+        update: {
+          status: 'COMPLETED',
+          completedAt: new Date(),
+          score: 80,
+          maxScore: 100,
+        },
+        create: {
+          enrollmentId: juniorEnrollment.id,
+          courseCode: juniorCourse.code,
+          moduleIndex: 1,
+          status: 'COMPLETED',
+          startedAt: new Date(),
+          completedAt: new Date(),
+          score: 80,
+          maxScore: 100,
+        },
+      });
+    }
+
+    if (seniorEnrollment && seniorCourse) {
+      const seniorWorksheet = await prisma.abacusWorksheet.findFirst({
+        where: { level: { module: { courseId: seniorCourse.id } } },
+        orderBy: { id: 'asc' },
+      });
+      if (seniorWorksheet) {
+        await prisma.worksheetAttempt.upsert({
+          where: {
+            enrollmentId_worksheetId: {
+              enrollmentId: seniorEnrollment.id,
+              worksheetId: seniorWorksheet.id,
+            },
+          },
+          update: {
+            status: 'IN_PROGRESS',
+            startedAt: new Date(),
+          },
+          create: {
+            enrollmentId: seniorEnrollment.id,
+            worksheetId: seniorWorksheet.id,
+            status: 'IN_PROGRESS',
+            startedAt: new Date(),
+          },
+        });
+        await prisma.studentWorksheetAttempt.create({
+          data: {
+            studentId: seniorEnrollment.studentId,
+            worksheetId: seniorWorksheet.id,
+            enrollmentId: seniorEnrollment.id,
+            status: 'IN_PROGRESS',
+            startedAt: new Date(),
+            totalScore: 0,
+            maxScore: 20,
+            autoGraded: false,
+          },
+        });
+      }
+      await prisma.moduleAttempt.upsert({
+        where: {
+          enrollmentId_courseCode_moduleIndex: {
+            enrollmentId: seniorEnrollment.id,
+            courseCode: seniorCourse.code,
+            moduleIndex: 2,
+          },
+        },
+        update: {
+          status: 'IN_PROGRESS',
+          startedAt: new Date(),
+        },
+        create: {
+          enrollmentId: seniorEnrollment.id,
+          courseCode: seniorCourse.code,
+          moduleIndex: 2,
+          status: 'IN_PROGRESS',
+          startedAt: new Date(),
+        },
+      });
+    }
+
+    if (juniorEnrollment) {
+      const latestJuniorAssessment = await prisma.abacusAssessment.findFirst({
+        where: { enrollmentId: juniorEnrollment.id },
+        orderBy: { attemptDate: 'desc' },
+      });
+      if (latestJuniorAssessment) {
+        await prisma.abacusAssessment.update({
+          where: { id: latestJuniorAssessment.id },
+          data: { passed: true, scorePercent: 90 },
+        });
+      }
+    }
+
+    if (seniorEnrollment) {
+      const latestSeniorAssessment = await prisma.abacusAssessment.findFirst({
+        where: { enrollmentId: seniorEnrollment.id },
+        orderBy: { attemptDate: 'desc' },
+      });
+      if (latestSeniorAssessment) {
+        await prisma.abacusAssessment.update({
+          where: { id: latestSeniorAssessment.id },
+          data: { passed: false, scorePercent: 62 },
+        });
+      }
+    }
+
+    const ceLeadRule = commissionRuleByKey.get(`${ce001.id}:LEAD`);
+    if (ceLeadRule && demoLeadsCreated.length > 0) {
+      await prisma.commissionRecord.createMany({
+        data: demoLeadsCreated.map((lead) => ({
+          orgUnitId: ce001.id,
+          ruleId: ceLeadRule.id,
+          entityType: 'LEAD',
+          entityId: lead.id,
+          amount: ceLeadRule.amount,
+          currency: ceLeadRule.currency,
+          meta: { stage: lead.stage, createdByUserId: bpUser.id },
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    const ceEnrollmentRule = commissionRuleByKey.get(`${ce001.id}:ENROLLMENT`);
+    if (ceEnrollmentRule && enrollmentsData.length > 0) {
+      await prisma.commissionRecord.createMany({
+        data: enrollmentsData.map((enrollment) => {
+          const courseMeta = courseById.get(enrollment.courseId);
+          return {
+            orgUnitId: ce001.id,
+            ruleId: ceEnrollmentRule.id,
+            entityType: 'ENROLLMENT',
+            entityId: enrollment.id,
+            courseId: enrollment.courseId,
+            courseCode: courseMeta?.code ?? null,
+            amount: ceEnrollmentRule.amount,
+            currency: ceEnrollmentRule.currency,
+            meta: { status: enrollment.status, createdByUserId: centerManager.id },
+          };
+        }),
+        skipDuplicates: true,
+      });
+    }
 
     // Ensure a passing assessment exists for certificate verification
     const firstEnrollment = enrollmentsData[0];

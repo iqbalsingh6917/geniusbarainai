@@ -1,7 +1,9 @@
 import React from 'react';
 import LeadsPageBase from '../components/leads/LeadsPageBase';
 import {
+  assignLead,
   createLead,
+  fetchLead,
   fetchLeadSummary,
   listLeads,
   updateLead,
@@ -14,9 +16,11 @@ const CenterLeadsPage: React.FC = () => {
       title="Leads (Center)"
       summaryLoader={() => fetchLeadSummary('center')}
       listLoader={listLeads}
+      fetchLead={fetchLead}
       createLead={createLead}
       updateLead={updateLead}
-      updateStage={(id, stage) => updateLeadStage(id, { stage })}
+      updateStage={(id, payload) => updateLeadStage(id, payload)}
+      assignLead={assignLead}
     />
   );
 };
