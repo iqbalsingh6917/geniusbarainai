@@ -58,8 +58,18 @@ export const settlementListSchema = z.object({
   orgUnitId: z.coerce.number().int().positive().optional(),
   status: z.enum(['DRAFT', 'FINALIZED', 'PAID']).optional(),
   paymentStatus: z.enum(['UNPAID', 'PAID']).optional(),
+  periodStart: z.preprocess((value) => normalizeDateInput(value, false), z.coerce.date()).optional(),
+  periodEnd: z.preprocess((value) => normalizeDateInput(value, true), z.coerce.date()).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   offset: z.coerce.number().int().min(0).optional(),
+}).refine((data) => {
+  if (data.periodStart && data.periodEnd) {
+    return data.periodEnd > data.periodStart;
+  }
+  return true;
+}, {
+  message: 'periodEnd must be after periodStart',
+  path: ['periodEnd'],
 });
 
 export const settlementMarkPaidSchema = z.object({

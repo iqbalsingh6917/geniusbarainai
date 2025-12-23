@@ -377,6 +377,12 @@ router.get('/settlements', authRequired, async (req: AuthRequest, res: Response)
     if (parsed.paymentStatus) {
       where.paymentStatus = parsed.paymentStatus;
     }
+    if (parsed.periodStart) {
+      where.periodStart = { gte: parsed.periodStart };
+    }
+    if (parsed.periodEnd) {
+      where.periodEnd = { lte: parsed.periodEnd };
+    }
 
     const [items, total] = await Promise.all([
       prisma.settlement.findMany({
@@ -391,14 +397,16 @@ router.get('/settlements', authRequired, async (req: AuthRequest, res: Response)
     await logAudit(req, {
       action: 'SETTLEMENTS_LIST_VIEWED',
       entityType: 'Settlement',
-      meta: {
-        limit,
-        offset,
-        status: parsed.status ?? null,
-        paymentStatus: parsed.paymentStatus ?? null,
-        orgUnitId: parsed.orgUnitId ?? null,
-        orgUnitCount: allowedOrgUnits.length,
-      },
+        meta: {
+          limit,
+          offset,
+          status: parsed.status ?? null,
+          paymentStatus: parsed.paymentStatus ?? null,
+          periodStart: parsed.periodStart ?? null,
+          periodEnd: parsed.periodEnd ?? null,
+          orgUnitId: parsed.orgUnitId ?? null,
+          orgUnitCount: allowedOrgUnits.length,
+        },
     });
 
     ok(res, { items, total, limit, offset });
