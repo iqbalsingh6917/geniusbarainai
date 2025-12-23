@@ -66,6 +66,11 @@ const FranchiseLayout: React.FC = () => {
                     </Link>
                   </li>
                 )}
+                <li>
+                  <Link to="/franchise/finance/settlements" className="block py-2 px-4 rounded hover:bg-gray-100">
+                    Settlements
+                  </Link>
+                </li>
               </ul>
             </div>
           </div>

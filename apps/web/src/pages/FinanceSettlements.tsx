@@ -34,11 +34,27 @@ type FilterState = {
   periodEnd: string;
 };
 
+type OrgUnitMode = 'select' | 'locked';
+
+type FinanceSettlementsProps = {
+  basePath?: string;
+  orgUnitMode?: OrgUnitMode;
+  lockedOrgUnitId?: number | null;
+  orgUnitsLoader?: () => Promise<OrgUnit[]>;
+};
+
 const PAGE_SIZE = 20;
 
-const FinanceSettlements: React.FC = () => {
+const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
+  basePath = '/superadmin/finance-settlements',
+  orgUnitMode = 'select',
+  lockedOrgUnitId = null,
+  orgUnitsLoader = fetchOrgUnits,
+}) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const lockedOrgUnitValue =
+    orgUnitMode === 'locked' && lockedOrgUnitId ? String(lockedOrgUnitId) : '';
   const [orgUnits, setOrgUnits] = useState<OrgUnit[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [total, setTotal] = useState(0);
@@ -52,14 +68,14 @@ const FinanceSettlements: React.FC = () => {
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<FilterState>({
-    orgUnitId: '',
+    orgUnitId: lockedOrgUnitValue,
     status: '',
     paymentStatus: '',
     periodStart: '',
     periodEnd: '',
   });
   const [draftForm, setDraftForm] = useState<DraftFormState>({
-    orgUnitId: '',
+    orgUnitId: lockedOrgUnitValue,
     periodStart: '',
     periodEnd: '',
     revenueSharePercent: '',
@@ -69,6 +85,13 @@ const FinanceSettlements: React.FC = () => {
     return new Map(orgUnits.map((unit) => [unit.id, unit]));
   }, [orgUnits]);
 
+  useEffect(() => {
+    if (orgUnitMode !== 'locked' || !lockedOrgUnitId) return;
+    const value = String(lockedOrgUnitId);
+    setFilters((prev) => (prev.orgUnitId === value ? prev : { ...prev, orgUnitId: value }));
+    setDraftForm((prev) => (prev.orgUnitId === value ? prev : { ...prev, orgUnitId: value }));
+  }, [orgUnitMode, lockedOrgUnitId]);
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const rangeEnd = total === 0 ? 0 : Math.min(page * PAGE_SIZE, total);
@@ -76,14 +99,14 @@ const FinanceSettlements: React.FC = () => {
   useEffect(() => {
     const loadOrgUnits = async () => {
       try {
-        const data = await fetchOrgUnits();
+        const data = await orgUnitsLoader();
         setOrgUnits(data);
       } catch (err) {
         showToast(buildErrorMessage(err, 'Failed to load org units'), 'error');
       }
     };
     loadOrgUnits();
-  }, [showToast]);
+  }, [orgUnitsLoader, showToast]);
 
   useEffect(() => {
     fetchSettlements();
@@ -97,6 +120,15 @@ const FinanceSettlements: React.FC = () => {
     }
     return parseErrorMessage(err, fallback);
   };
+
+  const getOrgUnitLabel = (orgUnitId?: number | null) => {
+    if (!orgUnitId) return 'Unknown';
+    const unit = orgUnitMap.get(orgUnitId);
+    if (unit) return `${unit.code} - ${unit.name}`;
+    return `#${orgUnitId}`;
+  };
+
+  const lockedOrgUnitLabel = lockedOrgUnitId ? getOrgUnitLabel(lockedOrgUnitId) : 'Unavailable';
 
   const fetchSettlements = async () => {
     try {
@@ -138,7 +170,9 @@ const FinanceSettlements: React.FC = () => {
 
   const handleResetFilters = () => {
     setPage(1);
-    setFilters({ orgUnitId: '', status: '', paymentStatus: '', periodStart: '', periodEnd: '' });
+    const orgUnitId =
+      orgUnitMode === 'locked' && lockedOrgUnitId ? String(lockedOrgUnitId) : '';
+    setFilters({ orgUnitId, status: '', paymentStatus: '', periodStart: '', periodEnd: '' });
   };
 
   const validateDraft = () => {
@@ -192,7 +226,9 @@ const FinanceSettlements: React.FC = () => {
       });
       showToast(`Draft created (#${created.id})`, 'success');
       setPreview(null);
-      setDraftForm({ orgUnitId: '', periodStart: '', periodEnd: '', revenueSharePercent: '' });
+      const orgUnitId =
+        orgUnitMode === 'locked' && lockedOrgUnitId ? String(lockedOrgUnitId) : '';
+      setDraftForm({ orgUnitId, periodStart: '', periodEnd: '', revenueSharePercent: '' });
       fetchSettlements();
     } catch (err) {
       const message = buildErrorMessage(err, 'Failed to create settlement draft');
@@ -277,18 +313,22 @@ const FinanceSettlements: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <div>
             <label className="block text-xs font-semibold mb-1">Org Unit</label>
-            <select
-              className="form-control w-full"
-              value={filters.orgUnitId}
-              onChange={(e) => handleFilterChange('orgUnitId', e.target.value)}
-            >
-              <option value="">All</option>
-              {orgUnits.map((unit) => (
-                <option key={unit.id} value={unit.id}>
-                  {unit.code} - {unit.name}
-                </option>
-              ))}
-            </select>
+            {orgUnitMode === 'locked' ? (
+              <input className="form-control w-full" value={lockedOrgUnitLabel} disabled />
+            ) : (
+              <select
+                className="form-control w-full"
+                value={filters.orgUnitId}
+                onChange={(e) => handleFilterChange('orgUnitId', e.target.value)}
+              >
+                <option value="">All</option>
+                {orgUnits.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.code} - {unit.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <label className="block text-xs font-semibold mb-1">Status</label>
@@ -343,18 +383,22 @@ const FinanceSettlements: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
             <label className="block text-xs font-semibold mb-1">Org Unit</label>
-            <select
-              className="form-control w-full"
-              value={draftForm.orgUnitId}
-              onChange={(e) => setDraftForm((prev) => ({ ...prev, orgUnitId: e.target.value }))}
-            >
-              <option value="">Select</option>
-              {orgUnits.map((unit) => (
-                <option key={unit.id} value={unit.id}>
-                  {unit.code} - {unit.name}
-                </option>
-              ))}
-            </select>
+            {orgUnitMode === 'locked' ? (
+              <input className="form-control w-full" value={lockedOrgUnitLabel} disabled />
+            ) : (
+              <select
+                className="form-control w-full"
+                value={draftForm.orgUnitId}
+                onChange={(e) => setDraftForm((prev) => ({ ...prev, orgUnitId: e.target.value }))}
+              >
+                <option value="">Select</option>
+                {orgUnits.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.code} - {unit.name}
+                  </option>
+                ))}
+              </select>
+            )}
             {draftErrors.orgUnitId && <p className="text-xs text-red-600 mt-1">{draftErrors.orgUnitId}</p>}
           </div>
           <div>
@@ -499,7 +543,7 @@ const FinanceSettlements: React.FC = () => {
                 <div className="flex flex-wrap gap-2">
                   <button
                     className="btn btn-outline btn-sm"
-                    onClick={() => navigate(`/superadmin/finance-settlements/${settlement.id}`)}
+                    onClick={() => navigate(`${basePath}/${settlement.id}`)}
                   >
                     View
                   </button>

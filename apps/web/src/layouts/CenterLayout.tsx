@@ -82,6 +82,13 @@ const CenterLayout: React.FC = () => {
                     Finance
                   </Link>
                 </li>
+                {isCenterManager(user) && (
+                  <li>
+                    <Link to="/center/finance/settlements" className="block py-2 px-4 rounded hover:bg-gray-100">
+                      Settlements
+                    </Link>
+                  </li>
+                )}
               </ul>
             </div>
           </div>

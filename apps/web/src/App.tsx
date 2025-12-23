@@ -25,6 +25,12 @@ import FinanceDues from './pages/FinanceDues';
 import FinanceTransactions from './pages/FinanceTransactions';
 import FinanceSettlements from './pages/FinanceSettlements';
 import FinanceSettlementDetail from './pages/FinanceSettlementDetail';
+import BpFinanceSettlements from './pages/BpFinanceSettlements';
+import BpFinanceSettlementDetail from './pages/BpFinanceSettlementDetail';
+import FranchiseFinanceSettlements from './pages/FranchiseFinanceSettlements';
+import FranchiseFinanceSettlementDetail from './pages/FranchiseFinanceSettlementDetail';
+import CenterFinanceSettlements from './pages/CenterFinanceSettlements';
+import CenterFinanceSettlementDetail from './pages/CenterFinanceSettlementDetail';
 import CenterFinance from './pages/CenterFinance';
 import TestPage from './pages/TestPage';
 import SimpleFinanceSettings from './pages/SimpleFinanceSettings';
@@ -110,6 +116,8 @@ function App() {
             <Route index element={<BusinessPartnerDashboard />} />
             <Route path="dashboard" element={<BusinessPartnerDashboard />} />
             <Route path="leads" element={<BpLeadsPage />} />
+            <Route path="finance/settlements" element={<BpFinanceSettlements />} />
+            <Route path="finance/settlements/:id" element={<BpFinanceSettlementDetail />} />
           </Route>
           
           {/* Franchise routes */}
@@ -117,6 +125,8 @@ function App() {
             <Route index element={<FranchiseDashboard />} />
             <Route path="dashboard" element={<FranchiseDashboard />} />
             <Route path="leads" element={<FranchiseLeadsPage />} />
+            <Route path="finance/settlements" element={<FranchiseFinanceSettlements />} />
+            <Route path="finance/settlements/:id" element={<FranchiseFinanceSettlementDetail />} />
           </Route>
           
           {/* Center routes */}
@@ -130,6 +140,8 @@ function App() {
             <Route path="schedule" element={<CenterSchedule />} />
             <Route path="attendance" element={<CenterAttendance />} />
             <Route path="finance" element={<CenterFinance />} />
+            <Route path="finance/settlements" element={<CenterFinanceSettlements />} />
+            <Route path="finance/settlements/:id" element={<CenterFinanceSettlementDetail />} />
             <Route path="students/:studentId/dashboard" element={<StudentDashboardPage />} />
           </Route>
           

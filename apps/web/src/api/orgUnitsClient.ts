@@ -26,6 +26,11 @@ export async function fetchOrgUnits(filter: OrgUnitFilter = {}): Promise<OrgUnit
   return res?.data ?? res ?? [];
 }
 
+export async function fetchScopedOrgUnits(): Promise<OrgUnit[]> {
+  const res = await apiClient.get('/api/org/units/scoped');
+  return res?.data ?? res ?? [];
+}
+
 function buildQuery(params: Record<string, any>) {
   const entries = Object.entries(params).filter(([_, v]) => v !== undefined && v !== null);
   if (!entries.length) return '';

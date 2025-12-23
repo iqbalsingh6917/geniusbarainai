@@ -7,7 +7,13 @@ import { parseErrorMessage } from '../utils/errorHandling';
 import { formatCurrency, formatDate, formatDateTime, statusChip } from '../utils/formatters';
 import { fetchSettlement, finalizeSettlement, markSettlementPaid, Settlement } from '../api/settlementsClient';
 
-const FinanceSettlementDetail: React.FC = () => {
+type FinanceSettlementDetailProps = {
+  basePath?: string;
+};
+
+const FinanceSettlementDetail: React.FC<FinanceSettlementDetailProps> = ({
+  basePath = '/superadmin/finance-settlements',
+}) => {
   const { id } = useParams();
   const settlementId = Number(id);
   const navigate = useNavigate();
@@ -107,7 +113,7 @@ const FinanceSettlementDetail: React.FC = () => {
     return (
       <div className="p-6">
         <p className="text-red-600">{error || 'Settlement not found'}</p>
-        <button className="btn btn-outline btn-sm mt-3" onClick={() => navigate('/superadmin/finance-settlements')}>
+        <button className="btn btn-outline btn-sm mt-3" onClick={() => navigate(basePath)}>
           Back to settlements
         </button>
       </div>
@@ -121,7 +127,7 @@ const FinanceSettlementDetail: React.FC = () => {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/superadmin/finance-settlements" className="text-blue-600 text-sm">
+          <Link to={basePath} className="text-blue-600 text-sm">
             &larr; Back to settlements
           </Link>
           <h2 className="text-xl font-semibold mt-2">Settlement #{settlement.id}</h2>
