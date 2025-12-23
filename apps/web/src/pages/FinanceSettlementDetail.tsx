@@ -5,7 +5,13 @@ import { useToast } from '../contexts/ToastContext';
 import { ApiError } from '../utils/apiClient';
 import { parseErrorMessage } from '../utils/errorHandling';
 import { formatCurrency, formatDate, formatDateTime, statusChip } from '../utils/formatters';
-import { fetchSettlement, finalizeSettlement, markSettlementPaid, Settlement } from '../api/settlementsClient';
+import {
+  buildExportDetailUrl,
+  fetchSettlement,
+  finalizeSettlement,
+  markSettlementPaid,
+  Settlement,
+} from '../api/settlementsClient';
 
 type FinanceSettlementDetailProps = {
   basePath?: string;
@@ -22,6 +28,7 @@ const FinanceSettlementDetail: React.FC<FinanceSettlementDetailProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [paymentRef, setPaymentRef] = useState('');
 
   const buildErrorMessage = (err: unknown, fallback: string) => {
@@ -30,6 +37,47 @@ const FinanceSettlementDetail: React.FC<FinanceSettlementDetailProps> = ({
       return err.code ? `${message} [${err.code}]` : message;
     }
     return parseErrorMessage(err, fallback);
+  };
+
+  const getExportFilename = (contentDisposition: string | null, fallback: string) => {
+    if (!contentDisposition) return fallback;
+    const match = contentDisposition.match(/filename="([^"]+)"/i);
+    return match?.[1] || fallback;
+  };
+
+  const buildExportError = async (response: Response, fallback: string) => {
+    let message = fallback;
+    let code: string | undefined;
+    try {
+      const payload = await response.json();
+      message = payload?.error?.message || payload?.message || message;
+      code = payload?.error?.code || payload?.code;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, message, false, code);
+  };
+
+  const downloadCsv = async (url: string, fallbackFilename: string) => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(url, {
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+    });
+    if (!response.ok) {
+      await buildExportError(response, 'Failed to export settlement');
+    }
+    const blob = await response.blob();
+    const filename = getExportFilename(response.headers.get('Content-Disposition'), fallbackFilename);
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(objectUrl);
   };
 
   const loadSettlement = async () => {
@@ -86,6 +134,18 @@ const FinanceSettlementDetail: React.FC<FinanceSettlementDetailProps> = ({
     }
   };
 
+  const handleExportCsv = async () => {
+    if (!settlement) return;
+    try {
+      setExporting(true);
+      await downloadCsv(buildExportDetailUrl(settlement.id), `settlement_${settlement.id}.csv`);
+    } catch (err) {
+      showToast(buildErrorMessage(err, 'Failed to export settlement'), 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const formatPeriodEnd = (value: string) => {
     const date = new Date(value);
     if (!Number.isNaN(date.getTime()) && date.getHours() === 0 && date.getMinutes() === 0) {
@@ -136,6 +196,9 @@ const FinanceSettlementDetail: React.FC<FinanceSettlementDetailProps> = ({
           </p>
         </div>
         <div className="flex gap-2">
+          <button className="btn btn-outline btn-sm" onClick={handleExportCsv} disabled={exporting}>
+            {exporting ? 'Exporting...' : 'Export CSV'}
+          </button>
           <button className="btn btn-outline btn-sm" disabled={!canFinalize || processing} onClick={handleFinalize}>
             Finalize
           </button>

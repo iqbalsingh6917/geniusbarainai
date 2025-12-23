@@ -12,6 +12,7 @@ import {
   SettlementPaymentStatus,
   SettlementPreview,
   SettlementStatus,
+  buildExportListUrl,
   createSettlement,
   finalizeSettlement,
   listSettlements,
@@ -66,6 +67,7 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
   const [actionId, setActionId] = useState<number | null>(null);
   const [preview, setPreview] = useState<SettlementPreview | null>(null);
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
+  const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<FilterState>({
     orgUnitId: lockedOrgUnitValue,
@@ -119,6 +121,47 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
       return err.code ? `${message} [${err.code}]` : message;
     }
     return parseErrorMessage(err, fallback);
+  };
+
+  const getExportFilename = (contentDisposition: string | null, fallback: string) => {
+    if (!contentDisposition) return fallback;
+    const match = contentDisposition.match(/filename="([^"]+)"/i);
+    return match?.[1] || fallback;
+  };
+
+  const buildExportError = async (response: Response, fallback: string) => {
+    let message = fallback;
+    let code: string | undefined;
+    try {
+      const payload = await response.json();
+      message = payload?.error?.message || payload?.message || message;
+      code = payload?.error?.code || payload?.code;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, message, false, code);
+  };
+
+  const downloadCsv = async (url: string, fallbackFilename: string) => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(url, {
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+    });
+    if (!response.ok) {
+      await buildExportError(response, 'Failed to export settlements');
+    }
+    const blob = await response.blob();
+    const filename = getExportFilename(response.headers.get('Content-Disposition'), fallbackFilename);
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(objectUrl);
   };
 
   const getOrgUnitLabel = (orgUnitId?: number | null) => {
@@ -268,6 +311,24 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
     }
   };
 
+  const handleExportCsv = async () => {
+    try {
+      setExporting(true);
+      const url = buildExportListUrl({
+        orgUnitId: filters.orgUnitId ? Number(filters.orgUnitId) : undefined,
+        status: filters.status || undefined,
+        paymentStatus: filters.paymentStatus || undefined,
+        periodStart: filters.periodStart || undefined,
+        periodEnd: filters.periodEnd || undefined,
+      });
+      await downloadCsv(url, 'settlements_export.csv');
+    } catch (err) {
+      showToast(buildErrorMessage(err, 'Failed to export settlements'), 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const renderStatusChip = (status: SettlementStatus) => {
     switch (status) {
       case 'DRAFT':
@@ -306,9 +367,14 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
       <div className="card p-4 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Settlement Filters</h2>
-          <button className="btn btn-outline btn-sm" onClick={handleResetFilters}>
-            Clear filters
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn btn-outline btn-sm" onClick={handleResetFilters}>
+              Clear filters
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={handleExportCsv} disabled={exporting}>
+              {exporting ? 'Exporting...' : 'Export CSV'}
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <div>
