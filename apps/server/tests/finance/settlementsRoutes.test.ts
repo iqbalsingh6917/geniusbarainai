@@ -244,6 +244,57 @@ describe('Settlements (draft)', () => {
     expect(data.items[0].orgUnitId).toBe(center1.id);
   });
 
+  it('filters settlements by payment status', async () => {
+    const center = await prisma.orgUnit.create({ data: { code: 'CE1', name: 'Center', type: 'CENTER' } });
+    const admin = await prisma.user.create({
+      data: { username: 'sa-payfilter', passwordHash: 'x', role: 'SUPERADMIN', orgUnitId: center.id },
+    });
+    const token = makeToken({ id: admin.id, role: admin.role, orgUnitId: admin.orgUnitId });
+
+    await prisma.settlement.createMany({
+      data: [
+        {
+          orgUnitId: center.id,
+          periodStart: new Date('2025-07-01'),
+          periodEnd: new Date('2025-07-31'),
+          grossCollected: 100,
+          refunds: 0,
+          adjustments: 0,
+          netCollected: 100,
+          revenueSharePercent: 0,
+          revenueShareAmount: 0,
+          netPayable: 0,
+          status: 'FINALIZED',
+          paymentStatus: 'PAID',
+          paidAt: new Date('2025-08-01T10:00:00.000Z'),
+        },
+        {
+          orgUnitId: center.id,
+          periodStart: new Date('2025-08-01'),
+          periodEnd: new Date('2025-08-31'),
+          grossCollected: 200,
+          refunds: 0,
+          adjustments: 0,
+          netCollected: 200,
+          revenueSharePercent: 0,
+          revenueShareAmount: 0,
+          netPayable: 0,
+          status: 'FINALIZED',
+          paymentStatus: 'UNPAID',
+        },
+      ],
+    });
+
+    const res = await request(app)
+      .get('/api/finance/settlements?paymentStatus=PAID')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const data = res.body.data ?? res.body;
+    expect(data.total).toBe(1);
+    expect(data.items[0].paymentStatus).toBe('PAID');
+  });
+
   it('finalizes a draft by recomputing totals and locking status', async () => {
     const center = await prisma.orgUnit.create({ data: { code: 'CE1', name: 'Center', type: 'CENTER' } });
     const course = await prisma.abacusCourse.create({
@@ -309,6 +360,101 @@ describe('Settlements (draft)', () => {
       .post(`/api/finance/settlements/${created.id}/finalize`)
       .set('Authorization', `Bearer ${token}`)
       .expect(409);
+  });
+
+  it('blocks marking paid for draft settlements', async () => {
+    const center = await prisma.orgUnit.create({ data: { code: 'CE1', name: 'Center', type: 'CENTER' } });
+    const admin = await prisma.user.create({
+      data: { username: 'sa-paid-draft', passwordHash: 'x', role: 'SUPERADMIN', orgUnitId: center.id },
+    });
+    const token = makeToken({ id: admin.id, role: admin.role, orgUnitId: admin.orgUnitId });
+
+    const createRes = await request(app)
+      .post('/api/finance/settlements')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ orgUnitId: center.id, periodStart: '2025-09-01', periodEnd: '2025-09-30' })
+      .expect(201);
+
+    const created = createRes.body.data ?? createRes.body;
+
+    await request(app)
+      .post(`/api/finance/settlements/${created.id}/mark-paid`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ paymentRef: 'TXN-001' })
+      .expect(409);
+  });
+
+  it('marks a finalized settlement as paid and blocks duplicate payments', async () => {
+    const center = await prisma.orgUnit.create({ data: { code: 'CE1', name: 'Center', type: 'CENTER' } });
+    const admin = await prisma.user.create({
+      data: { username: 'sa-paid', passwordHash: 'x', role: 'SUPERADMIN', orgUnitId: center.id },
+    });
+    const token = makeToken({ id: admin.id, role: admin.role, orgUnitId: admin.orgUnitId });
+
+    const createRes = await request(app)
+      .post('/api/finance/settlements')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ orgUnitId: center.id, periodStart: '2025-10-01', periodEnd: '2025-10-31' })
+      .expect(201);
+
+    const created = createRes.body.data ?? createRes.body;
+
+    await request(app)
+      .post(`/api/finance/settlements/${created.id}/finalize`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const paidRes = await request(app)
+      .post(`/api/finance/settlements/${created.id}/mark-paid`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ paymentRef: 'TXN-PAID-1' })
+      .expect(200);
+
+    const paid = paidRes.body.data ?? paidRes.body;
+    expect(paid.paymentStatus).toBe('PAID');
+    expect(paid.paidByUserId).toBe(admin.id);
+    expect(paid.paymentRef).toBe('TXN-PAID-1');
+    expect(paid.paidAt).toBeTruthy();
+
+    await request(app)
+      .post(`/api/finance/settlements/${created.id}/mark-paid`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(409);
+  });
+
+  it('blocks mark-paid outside org scope', async () => {
+    const root = await prisma.orgUnit.create({ data: { code: 'ROOT', name: 'Root', type: 'SUPERADMIN_ROOT' } });
+    const bp1 = await prisma.orgUnit.create({ data: { code: 'BP1', name: 'BP1', type: 'BUSINESS_PARTNER', parentId: root.id } });
+    const bp2 = await prisma.orgUnit.create({ data: { code: 'BP2', name: 'BP2', type: 'BUSINESS_PARTNER', parentId: root.id } });
+    const center2 = await prisma.orgUnit.create({ data: { code: 'CE2', name: 'Center2', type: 'CENTER', parentId: bp2.id } });
+
+    const superadmin = await prisma.user.create({
+      data: { username: 'sa-paid', passwordHash: 'x', role: 'SUPERADMIN', orgUnitId: root.id },
+    });
+    const superToken = makeToken({ id: superadmin.id, role: superadmin.role, orgUnitId: superadmin.orgUnitId });
+
+    const createRes = await request(app)
+      .post('/api/finance/settlements')
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ orgUnitId: center2.id, periodStart: '2025-11-01', periodEnd: '2025-11-30' })
+      .expect(201);
+
+    const created = createRes.body.data ?? createRes.body;
+
+    await request(app)
+      .post(`/api/finance/settlements/${created.id}/finalize`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .expect(200);
+
+    const bpUser = await prisma.user.create({
+      data: { username: 'bp-paid', passwordHash: 'x', role: 'BUSINESS_PARTNER', orgUnitId: bp1.id },
+    });
+    const token = makeToken({ id: bpUser.id, role: bpUser.role, orgUnitId: bpUser.orgUnitId });
+
+    await request(app)
+      .post(`/api/finance/settlements/${created.id}/mark-paid`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(403);
   });
 
   it('blocks finalizing when an overlapping settlement is already finalized', async () => {

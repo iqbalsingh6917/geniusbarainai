@@ -83,6 +83,8 @@ model User {
   leadsCreated       Lead[] @relation("LeadCreatedBy")
   leadsAssigned      Lead[] @relation("LeadAssignedTo")
   leadActivities     LeadActivity[] @relation("LeadActivityActor")
+  settlementsFinalized Settlement[] @relation("SettlementFinalizedBy")
+  settlementsPaid    Settlement[] @relation("SettlementPaidBy")
 }
 
 model Student {
@@ -618,14 +620,19 @@ model Settlement {
   breakdown            Json?
   warnings             Json?
   status               String   @default("DRAFT")
+  paymentStatus        String   @default("UNPAID")
   computedAt           DateTime @default(now())
   finalizedAt          DateTime?
   finalizedByUserId    Int?
   paidAt               DateTime?
+  paidByUserId         Int?
+  paymentRef           String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   orgUnit OrgUnit @relation(fields: [orgUnitId], references: [id])
+  finalizedBy User? @relation("SettlementFinalizedBy", fields: [finalizedByUserId], references: [id])
+  paidBy      User? @relation("SettlementPaidBy", fields: [paidByUserId], references: [id])
 
   @@index([status])
   @@unique([orgUnitId, periodStart, periodEnd])

@@ -19,6 +19,7 @@ import {
   settlementPreviewSchema,
   settlementCreateSchema,
   settlementListSchema,
+  settlementMarkPaidSchema,
 } from '../schemas/financeSchema';
 import { computeSettlementPreview } from '../services/settlementPreviewService';
 import { isSuperadmin } from '../constants/roles';
@@ -373,6 +374,9 @@ router.get('/settlements', authRequired, async (req: AuthRequest, res: Response)
     if (parsed.status) {
       where.status = parsed.status;
     }
+    if (parsed.paymentStatus) {
+      where.paymentStatus = parsed.paymentStatus;
+    }
 
     const [items, total] = await Promise.all([
       prisma.settlement.findMany({
@@ -391,6 +395,7 @@ router.get('/settlements', authRequired, async (req: AuthRequest, res: Response)
         limit,
         offset,
         status: parsed.status ?? null,
+        paymentStatus: parsed.paymentStatus ?? null,
         orgUnitId: parsed.orgUnitId ?? null,
         orgUnitCount: allowedOrgUnits.length,
       },
@@ -538,6 +543,82 @@ router.post('/settlements/:id/finalize', authRequired, async (req: AuthRequest, 
     ok(res, finalized);
   } catch (error) {
     console.error('Error finalizing settlement:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// POST /api/finance/settlements/:id/mark-paid
+// Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
+router.post('/settlements/:id/mark-paid', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !canAccessSettlements(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
+    }
+
+    const settlementId = Number(req.params.id);
+    if (!Number.isInteger(settlementId) || settlementId <= 0) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid settlement id');
+    }
+
+    const parsed = settlementMarkPaidSchema.parse(req.body ?? {});
+
+    const settlement = await prisma.settlement.findUnique({ where: { id: settlementId } });
+    if (!settlement) {
+      return fail(res, 404, 'NOT_FOUND', 'Settlement not found');
+    }
+
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    if (!allowedOrgUnits.includes(settlement.orgUnitId)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+    }
+
+    if (settlement.status !== 'FINALIZED') {
+      return fail(res, 409, 'INVALID_STATUS', 'Settlement must be finalized before marking paid');
+    }
+
+    if (settlement.paymentStatus === 'PAID' || settlement.paidAt) {
+      return fail(res, 409, 'ALREADY_PAID', 'Settlement is already marked paid');
+    }
+
+    if (settlement.netPayable < 0) {
+      return fail(res, 409, 'INVALID_AMOUNT', 'Settlement net payable must be non-negative');
+    }
+
+    const updateResult = await prisma.settlement.updateMany({
+      where: { id: settlement.id, status: 'FINALIZED', paymentStatus: 'UNPAID' },
+      data: {
+        paymentStatus: 'PAID',
+        paidAt: new Date(),
+        paidByUserId: req.user.id ?? null,
+        paymentRef: parsed.paymentRef ?? null,
+      },
+    });
+
+    if (updateResult.count === 0) {
+      return fail(res, 409, 'ALREADY_PAID', 'Settlement is already marked paid');
+    }
+
+    const updated = await prisma.settlement.findUnique({ where: { id: settlement.id } });
+
+    await logAudit(req, {
+      action: 'SETTLEMENT_MARKED_PAID',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      meta: {
+        orgUnitId: settlement.orgUnitId,
+        periodStart: settlement.periodStart,
+        periodEnd: settlement.periodEnd,
+        netPayable: settlement.netPayable,
+        paymentRef: parsed.paymentRef ?? null,
+      },
+    });
+
+    ok(res, updated);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    console.error('Error marking settlement paid:', error);
     fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
   }
 });
