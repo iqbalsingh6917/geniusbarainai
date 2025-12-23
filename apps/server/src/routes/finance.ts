@@ -12,6 +12,7 @@ import {
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
 import { z } from 'zod';
+import { csvEol, toCsv } from '../utils/csv';
 import {
   financeSettingsSchema,
   createTransactionSchema,
@@ -28,6 +29,88 @@ const router = Router();
 const prisma = new PrismaClient();
 const canAccessSettlements = (role?: string) =>
   !!role && (isSuperadmin(role) || isBusinessPartner(role) || isFranchise(role) || isCenterManager(role));
+const EXPORT_MAX_ROWS = 50000;
+
+type SettlementListInput = z.infer<typeof settlementListSchema>;
+
+const buildSettlementWhere = (parsed: SettlementListInput, allowedOrgUnits: number[]) => {
+  const where: Prisma.SettlementWhereInput = { orgUnitId: { in: allowedOrgUnits } };
+  if (parsed.orgUnitId) {
+    where.orgUnitId = parsed.orgUnitId;
+  }
+  if (parsed.status) {
+    where.status = parsed.status;
+  }
+  if (parsed.paymentStatus) {
+    where.paymentStatus = parsed.paymentStatus;
+  }
+  if (parsed.periodStart) {
+    where.periodStart = { gte: parsed.periodStart };
+  }
+  if (parsed.periodEnd) {
+    where.periodEnd = { lte: parsed.periodEnd };
+  }
+  return where;
+};
+
+const formatExportTimestamp = (value: Date) => {
+  const pad = (input: number) => String(input).padStart(2, '0');
+  return `${value.getUTCFullYear()}${pad(value.getUTCMonth() + 1)}${pad(value.getUTCDate())}_${pad(
+    value.getUTCHours(),
+  )}${pad(value.getUTCMinutes())}`;
+};
+
+const toIso = (value?: Date | null) => (value ? value.toISOString() : '');
+
+const settlementCsvHeaders = [
+  'settlementId',
+  'orgUnitId',
+  'orgUnitName',
+  'orgUnitType',
+  'periodStart',
+  'periodEnd',
+  'status',
+  'paymentStatus',
+  'grossCollected',
+  'refunds',
+  'adjustments',
+  'netCollected',
+  'revenueSharePercent',
+  'revenueShareAmount',
+  'netPayable',
+  'computedAt',
+  'finalizedAt',
+  'finalizedByUserId',
+  'paidAt',
+  'paidByUserId',
+  'paymentRef',
+  'warningsCount',
+];
+
+const normalizeWarnings = (warnings: unknown) => {
+  if (!Array.isArray(warnings)) return [];
+  return warnings
+    .map((warning) => {
+      if (!warning || typeof warning !== 'object') return null;
+      const entry = warning as { code?: string; message?: string };
+      if (!entry.code && !entry.message) return null;
+      return {
+        code: entry.code ? String(entry.code) : '',
+        message: entry.message ? String(entry.message) : '',
+      };
+    })
+    .filter((warning): warning is { code: string; message: string } => !!warning);
+};
+
+const normalizeBreakdown = (breakdown: unknown) => {
+  if (!breakdown || typeof breakdown !== 'object') return [] as Array<[string, string | number | boolean | null]>;
+  return Object.entries(breakdown as Record<string, unknown>).map(([key, value]) => {
+    if (value === null || value === undefined) return [key, null] as const;
+    if (value instanceof Date) return [key, value.toISOString()] as const;
+    if (typeof value === 'object') return [key, JSON.stringify(value)] as const;
+    return [key, value as string | number | boolean] as const;
+  });
+};
 
 // GET /superadmin/finance/settings
 // Role: SUPERADMIN only
@@ -367,22 +450,7 @@ router.get('/settlements', authRequired, async (req: AuthRequest, res: Response)
     const limit = parsed.limit ?? 20;
     const offset = parsed.offset ?? 0;
 
-    const where: any = { orgUnitId: { in: allowedOrgUnits } };
-    if (parsed.orgUnitId) {
-      where.orgUnitId = parsed.orgUnitId;
-    }
-    if (parsed.status) {
-      where.status = parsed.status;
-    }
-    if (parsed.paymentStatus) {
-      where.paymentStatus = parsed.paymentStatus;
-    }
-    if (parsed.periodStart) {
-      where.periodStart = { gte: parsed.periodStart };
-    }
-    if (parsed.periodEnd) {
-      where.periodEnd = { lte: parsed.periodEnd };
-    }
+    const where = buildSettlementWhere(parsed, allowedOrgUnits);
 
     const [items, total] = await Promise.all([
       prisma.settlement.findMany({
@@ -415,6 +483,179 @@ router.get('/settlements', authRequired, async (req: AuthRequest, res: Response)
       return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
     }
     console.error('Error fetching settlements list:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/finance/settlements/export.csv
+// Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
+router.get('/settlements/export.csv', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !canAccessSettlements(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
+    }
+
+    const parsed = settlementListSchema.parse(req.query);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+
+    if (parsed.orgUnitId && !allowedOrgUnits.includes(parsed.orgUnitId)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+    }
+
+    const where = buildSettlementWhere(parsed, allowedOrgUnits);
+    const total = await prisma.settlement.count({ where });
+    if (total > EXPORT_MAX_ROWS) {
+      return fail(res, 413, 'EXPORT_TOO_LARGE', 'Export exceeds maximum rows');
+    }
+
+    const settlements = await prisma.settlement.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: EXPORT_MAX_ROWS,
+      include: {
+        orgUnit: {
+          select: { id: true, name: true, type: true },
+        },
+      },
+    });
+
+    const rows = settlements.map((settlement) => {
+      const warnings = normalizeWarnings(settlement.warnings);
+      return [
+        settlement.id,
+        settlement.orgUnitId,
+        settlement.orgUnit?.name ?? '',
+        settlement.orgUnit?.type ?? '',
+        settlement.periodStart,
+        settlement.periodEnd,
+        settlement.status,
+        settlement.paymentStatus,
+        settlement.grossCollected,
+        settlement.refunds,
+        settlement.adjustments,
+        settlement.netCollected,
+        settlement.revenueSharePercent,
+        settlement.revenueShareAmount,
+        settlement.netPayable,
+        settlement.computedAt,
+        settlement.finalizedAt,
+        settlement.finalizedByUserId ?? '',
+        settlement.paidAt,
+        settlement.paidByUserId ?? '',
+        settlement.paymentRef ?? '',
+        warnings.length,
+      ];
+    });
+
+    await logAudit(req, {
+      action: 'SETTLEMENTS_EXPORT_LIST',
+      entityType: 'Settlement',
+      meta: {
+        status: parsed.status ?? null,
+        paymentStatus: parsed.paymentStatus ?? null,
+        periodStart: toIso(parsed.periodStart),
+        periodEnd: toIso(parsed.periodEnd),
+        orgUnitId: parsed.orgUnitId ?? null,
+        total,
+      },
+    });
+
+    const filename = `settlements_${formatExportTimestamp(new Date())}.csv`;
+    res.header('Content-Type', 'text/csv; charset=utf-8');
+    res.header('Content-Disposition', `attachment; filename="${filename}"`);
+    res.status(200).send(toCsv(settlementCsvHeaders, rows));
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
+    }
+    console.error('Error exporting settlements CSV:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/finance/settlements/:id/export.csv
+// Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
+router.get('/settlements/:id/export.csv', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !canAccessSettlements(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
+    }
+
+    const settlementId = Number(req.params.id);
+    if (!Number.isInteger(settlementId) || settlementId <= 0) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'Invalid settlement id');
+    }
+
+    const settlement = await prisma.settlement.findUnique({
+      where: { id: settlementId },
+      include: {
+        orgUnit: {
+          select: { id: true, name: true, type: true },
+        },
+      },
+    });
+    if (!settlement) {
+      return fail(res, 404, 'NOT_FOUND', 'Settlement not found');
+    }
+
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    if (!allowedOrgUnits.includes(settlement.orgUnitId)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+    }
+
+    const warnings = normalizeWarnings(settlement.warnings);
+    const breakdownEntries = normalizeBreakdown(settlement.breakdown);
+    const row = [
+      settlement.id,
+      settlement.orgUnitId,
+      settlement.orgUnit?.name ?? '',
+      settlement.orgUnit?.type ?? '',
+      settlement.periodStart,
+      settlement.periodEnd,
+      settlement.status,
+      settlement.paymentStatus,
+      settlement.grossCollected,
+      settlement.refunds,
+      settlement.adjustments,
+      settlement.netCollected,
+      settlement.revenueSharePercent,
+      settlement.revenueShareAmount,
+      settlement.netPayable,
+      settlement.computedAt,
+      settlement.finalizedAt,
+      settlement.finalizedByUserId ?? '',
+      settlement.paidAt,
+      settlement.paidByUserId ?? '',
+      settlement.paymentRef ?? '',
+      warnings.length,
+    ];
+
+    const sections = [toCsv(settlementCsvHeaders, [row])];
+    if (warnings.length > 0) {
+      const warningRows = warnings.map((warning) => [warning.code, warning.message]);
+      sections.push(`Warnings${csvEol}${toCsv(['code', 'message'], warningRows)}`);
+    }
+    if (breakdownEntries.length > 0) {
+      const breakdownRows = breakdownEntries.map(([key, value]) => [key, value]);
+      sections.push(`Breakdown${csvEol}${toCsv(['key', 'value'], breakdownRows)}`);
+    }
+
+    await logAudit(req, {
+      action: 'SETTLEMENTS_EXPORT_DETAIL',
+      entityType: 'Settlement',
+      entityId: settlement.id,
+      meta: {
+        orgUnitId: settlement.orgUnitId,
+        status: settlement.status,
+      },
+    });
+
+    const filename = `settlement_${settlement.id}_${formatExportTimestamp(new Date())}.csv`;
+    res.header('Content-Type', 'text/csv; charset=utf-8');
+    res.header('Content-Disposition', `attachment; filename="${filename}"`);
+    res.status(200).send(sections.join(`${csvEol}${csvEol}`));
+  } catch (error) {
+    console.error('Error exporting settlement CSV:', error);
     fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
   }
 });
