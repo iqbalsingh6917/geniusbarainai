@@ -23,6 +23,8 @@ import TeacherDashboard from './pages/TeacherDashboardReal';
 import FinanceSettings from './pages/FinanceSettings';
 import FinanceDues from './pages/FinanceDues';
 import FinanceTransactions from './pages/FinanceTransactions';
+import FinanceSettlements from './pages/FinanceSettlements';
+import FinanceSettlementDetail from './pages/FinanceSettlementDetail';
 import CenterFinance from './pages/CenterFinance';
 import TestPage from './pages/TestPage';
 import SimpleFinanceSettings from './pages/SimpleFinanceSettings';
@@ -87,6 +89,8 @@ function App() {
             <Route path="finance-settings" element={<FinanceSettings />} />
             <Route path="finance-dues" element={<FinanceDues />} />
             <Route path="finance-transactions" element={<FinanceTransactions />} />
+            <Route path="finance-settlements" element={<FinanceSettlements />} />
+            <Route path="finance-settlements/:id" element={<FinanceSettlementDetail />} />
             <Route path="licensing" element={<SuperadminLicensing />} />
             <Route path="license-orders" element={<SuperadminLicenseOrders />} />
             <Route path="licensing/allocations" element={<SuperadminAllocations />} />

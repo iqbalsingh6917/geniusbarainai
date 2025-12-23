@@ -99,6 +99,7 @@ const SuperadminLayout: React.FC = () => {
       '/superadmin/finance-settings': { title: 'Finance Settings', crumbs: ['Finance', 'Settings'] },
       '/superadmin/finance-dues': { title: 'Finance Dues', crumbs: ['Finance', 'Dues'] },
       '/superadmin/finance-transactions': { title: 'Finance Transactions', crumbs: ['Finance', 'Transactions'] },
+      '/superadmin/finance-settlements': { title: 'Finance Settlements', crumbs: ['Finance', 'Settlements'] },
       '/superadmin/licensing': { title: 'Licensing', crumbs: ['Finance', 'Licensing'] },
       '/superadmin/license-orders': { title: 'License Orders', crumbs: ['Finance', 'License Orders'] },
       '/superadmin/licensing/allocations': { title: 'Seat Allocations', crumbs: ['Finance', 'Seat Allocations'] },
@@ -154,7 +155,8 @@ const SuperadminLayout: React.FC = () => {
             {navItem('/superadmin/finance-settings', 'Finance Settings', '⚙️')}
             {navItem('/superadmin/finance-dues', 'Dues', '💳')}
             {navItem('/superadmin/finance-transactions', 'Transactions', '📄')}
-            {navItem('/superadmin/licensing', 'Licensing', '🎫')}
+            {navItem('/superadmin/finance-settlements', 'Settlements', '$')}
+            {navItem('/superadmin/licensing', 'Licensing', '??')}
             {user?.role === 'SUPERADMIN' && navItem('/superadmin/license-orders', 'License Orders', '🧾')}
             {user?.role === 'SUPERADMIN' && navItem('/superadmin/licensing/allocations', 'Seat Allocations', '📦')}
             {user?.role === 'SUPERADMIN' && navItem('/superadmin/commercial-history', 'Commercial History', '📊')}
@@ -194,3 +196,4 @@ const SuperadminLayout: React.FC = () => {
 };
 
 export default SuperadminLayout;
+
