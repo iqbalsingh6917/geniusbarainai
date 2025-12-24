@@ -1248,4 +1248,123 @@ router.patch(
   stageTransitionHandler,
 );
 
+// POST /api/leads/:id/convert
+// Convert a lead to a student/enrollment
+router.post(
+  '/leads/:id/convert',
+  requireAuth,
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
+  async (req: any, res: any) => {
+    try {
+      const leadId = Number(req.params.id);
+      if (!leadId) return fail(res, 400, 'VALIDATION_ERROR', 'Invalid lead id');
+
+      const { studentData, enrollmentData } = req.body;
+      
+      // Validate the request body
+      if (!studentData || !enrollmentData) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'studentData and enrollmentData are required');
+      }
+
+      const orgUnitId = req.user?.orgUnitId ?? undefined;
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
+
+      // Find the lead
+      const lead = await prisma.lead.findUnique({
+        where: { id: leadId },
+      });
+
+      if (!lead || !(await ensureOrgAccess(allowedOrgUnits, lead.orgUnitId ?? undefined))) {
+        return fail(res, 404, 'NOT_FOUND', 'Lead not found');
+      }
+
+      // Check if lead is already converted
+      if (lead.stage === 'CONVERTED') {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Lead is already converted');
+      }
+
+      // Validate student data
+      if (!studentData.firstName) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Student firstName is required');
+      }
+
+      // Validate enrollment data
+      if (!enrollmentData.courseId) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Course ID is required for enrollment');
+      }
+
+      // Create student from lead data
+      const student = await prisma.student.create({
+        data: {
+          code: `STU${Date.now()}`, // Generate student code
+          firstName: studentData.firstName,
+          lastName: studentData.lastName || lead.lastName || '',
+          contactEmail: studentData.contactEmail || lead.contactEmail || null,
+          contactPhone: studentData.contactPhone || lead.contactPhone || null,
+          orgUnitId: lead.orgUnitId,
+          status: 'ACTIVE',
+          age: studentData.age || null,
+          parentName: studentData.parentName || null,
+        },
+      });
+
+      // Create enrollment
+      const enrollment = await prisma.abacusEnrollment.create({
+        data: {
+          studentId: student.id,
+          courseId: enrollmentData.courseId,
+          orgUnitId: lead.orgUnitId,
+          status: 'ONGOING',
+          startDate: new Date(enrollmentData.startDate || new Date()),
+          endDate: enrollmentData.endDate ? new Date(enrollmentData.endDate) : null,
+          currentModuleId: enrollmentData.currentModuleId || null,
+          currentLevelId: enrollmentData.currentLevelId || null,
+        },
+      });
+
+      // Update lead stage to CONVERTED
+      const updatedLead = await prisma.lead.update({
+        where: { id: leadId },
+        data: {
+          stage: 'CONVERTED',
+          convertedToStudentId: student.id, // Link the lead to the student
+        },
+      });
+
+      const fullLead = await prisma.lead.findUnique({
+        where: { id: leadId },
+        include: {
+          activities: {
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+      });
+
+      // Log the stage change
+      await logStageChange(updatedLead.id, req.user?.id, lead.stage as Stage, 'CONVERTED', 'Lead converted to student enrollment');
+
+      // Log audit
+      await logAudit(req, {
+        action: 'LEAD_CONVERTED',
+        entityType: 'Lead',
+        entityId: updatedLead.id,
+        meta: { 
+          studentId: student.id,
+          enrollmentId: enrollment.id,
+          orgUnitId: lead.orgUnitId 
+        },
+      });
+
+      ok(res, {
+        lead: fullLead,
+        student,
+        enrollment,
+      });
+    } catch (err: any) {
+      console.error('Error converting lead', err);
+      fail(res, 500, 'INTERNAL_ERROR', 'Unable to convert lead');
+    }
+  },
+);
+
 export default router;

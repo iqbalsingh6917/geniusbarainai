@@ -117,6 +117,7 @@ model Student {
   worksheetAttempts  StudentWorksheetAttempt[]
   moduleCompletions  AbacusModuleCompletion[]
   examAttempts       ExamAttempt[]
+  convertedFromLead  Lead?                      @relation(name: "LeadToStudent")
 
   orgUnit OrgUnit? @relation(fields: [orgUnitId], references: [id])
 }
@@ -682,18 +683,17 @@ model Lead {
   lastStageChangedBy  Int?
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
+  convertedToStudentId Int?
 
   orgUnit      OrgUnit? @relation(fields: [orgUnitId], references: [id])
+  student      Student? @relation(name: "LeadToStudent", fields: [convertedToStudentId], references: [id])
   createdBy    User?    @relation("LeadCreatedBy", fields: [createdByUserId], references: [id])
   assignedTo   User?    @relation("LeadAssignedTo", fields: [assignedToUserId], references: [id])
   activities   LeadActivity[]
 
   @@index([orgUnitId])
-  @@index([stage])
-  @@index([createdAt])
-  @@index([orgUnitId, stage, updatedAt])
-  @@index([orgUnitId, nextFollowUpAt])
-  @@index([assignedToUserId, stage])
+  @@index([convertedToStudentId])
+  @@unique([convertedToStudentId])
 }
 
 model LeadActivity {
@@ -844,5 +844,3 @@ model CommissionRecord {
   @@index([entityType])
   @@index([courseCode])
 }
-
-// Next migration suggestion: add_attempt_feedback_fields

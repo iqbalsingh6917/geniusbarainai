@@ -101,6 +101,25 @@ type LeadsPageBaseProps = {
   updateStage: (id: number, payload: { stage: LeadStage; lostReason?: string }) => Promise<LeadListItem>;
   assignLead: (id: number, assignedToUserId: number | null) => Promise<LeadListItem>;
   snoozeLead: (id: number, days: 1 | 3 | 7) => Promise<LeadListItem>;
+  convertLead?: (id: number, data: { 
+    studentData: { 
+      firstName: string; 
+      lastName?: string; 
+      contactEmail?: string; 
+      contactPhone?: string; 
+      age?: number; 
+      parentName?: string; 
+      parentContact?: string; 
+    }; 
+    enrollmentData: { 
+      courseId: number; 
+      startDate?: string; 
+      endDate?: string; 
+      currentModuleId?: number; 
+      currentLevelId?: number; 
+      teacherUserId?: number; 
+    }; 
+  }) => Promise<{ lead: LeadListItem; student: any; enrollment: any }>;
 };
 
 const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
@@ -116,6 +135,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
   updateStage,
   assignLead,
   snoozeLead,
+  convertLead,
 }) => {
   const { showToast } = useToast();
   const { user } = useAuth();
@@ -414,6 +434,46 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  // Add a function to handle lead conversion
+  const handleConvertLead = async (id: number, data: { 
+    studentData: { 
+      firstName: string; 
+      lastName?: string; 
+      contactEmail?: string; 
+      contactPhone?: string; 
+      age?: number; 
+      parentName?: string; 
+      parentContact?: string; 
+    }; 
+    enrollmentData: { 
+      courseId: number; 
+      startDate?: string; 
+      endDate?: string; 
+      currentModuleId?: number; 
+      currentLevelId?: number; 
+      teacherUserId?: number; 
+    }; 
+  }): Promise<{ lead: LeadDetail; student: any; enrollment: any } | undefined> => {
+    if (!convertLead) {
+      showToast('Convert lead functionality not available', 'error');
+      return undefined;
+    }
+    
+    try {
+      const result = await convertLead(id, data);
+      setLeads((prev) => prev.map((l) => (l.id === result.lead.id ? { ...l, ...result.lead } : l)));
+      setSelectedLead((prev) => (prev && prev.id === result.lead.id ? { ...prev, ...result.lead } : prev));
+      await refreshAssistForLead(result.lead.id);
+      await refreshSummary();
+      await refreshMetrics();
+      showToast('Lead converted successfully', 'success');
+      return result;
+    } catch (err) {
+      handleErrorToast(err, showToast, 'Could not convert lead');
+      throw err;
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6">
@@ -699,6 +759,7 @@ const LeadsPageBase: React.FC<LeadsPageBaseProps> = ({
         onStageChange={(stage, lostReason) => handleStageChange(stage, undefined, lostReason)}
         onAssign={handleAssign}
         onSnooze={(days) => (selectedLead ? handleSnooze(selectedLead.id, days) : Promise.resolve())}
+        onConvertLead={convertLead ? handleConvertLead : undefined}
       />
 
       {creating && (

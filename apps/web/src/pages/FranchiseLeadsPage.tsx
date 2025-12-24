@@ -12,6 +12,7 @@ import {
   snoozeLead,
   updateLead,
   updateLeadStage,
+  convertLead,
 } from '../api/salesLeadsClient';
 
 const FranchiseLeadsPage: React.FC = () => {
@@ -29,6 +30,7 @@ const FranchiseLeadsPage: React.FC = () => {
       updateStage={(id, payload) => updateLeadStage(id, payload)}
       assignLead={assignLead}
       snoozeLead={snoozeLead}
+      convertLead={convertLead}
     />
   );
 };

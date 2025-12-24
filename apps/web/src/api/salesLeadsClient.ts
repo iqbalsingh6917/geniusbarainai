@@ -210,3 +210,30 @@ export async function listLeadAssistSummary(filters: LeadListFilters = {}): Prom
   const res = await apiClient.get(`/api/leads/assist/summary${query ? `?${query}` : ''}`);
   return res;
 }
+
+export async function convertLead(id: number, data: { 
+  studentData: { 
+    firstName: string; 
+    lastName?: string; 
+    contactEmail?: string; 
+    contactPhone?: string; 
+    age?: number; 
+    parentName?: string; 
+    parentContact?: string; 
+  }; 
+  enrollmentData: { 
+    courseId: number; 
+    startDate?: string; 
+    endDate?: string; 
+    currentModuleId?: number; 
+    currentLevelId?: number; 
+    teacherUserId?: number; 
+  }; 
+}): Promise<{
+  lead: LeadListItem;
+  student: any; // Student type would be defined elsewhere
+  enrollment: any; // Enrollment type would be defined elsewhere
+}> {
+  const res = await apiClient.post(`/api/leads/${id}/convert`, data);
+  return res;
+}
