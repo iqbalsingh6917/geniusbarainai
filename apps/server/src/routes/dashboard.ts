@@ -784,3 +784,4 @@ router.get('/teacher', authRequired, async (req: AuthRequest, res: Response) => 
 });
 
 export default router;
+export { router as dashboardRoutes };

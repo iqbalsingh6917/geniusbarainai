@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Skeleton from '../components/ui/Skeleton';
-import { useAuth } from '../contexts/AuthContext';
+import { fetchBpOverview, BpOverview } from '../api/dashboardOverviewClient';
 import { apiClient } from '../utils/apiClient';
-import AnomaliesPanel from '../components/ops/AnomaliesPanel';
-import { fetchBpDashboard, OrgDashboardSummary } from '../api/bpDashboardClient';
-import { fetchBpLeadSummary, LeadSummaryResponse } from '../api/bpLeadsClient';
-import { formatCurrency } from '../utils/formatters';
+import { OrgDashboardSummary, fetchBpDashboard } from '../api/bpDashboardClient';
+import { fetchBpLeadSummary } from '../api/bpLeadsClient';
 import { fetchOpsAnomalySummary, OpsAnomalySummary } from '../api/opsAnomaliesClient';
+import AnomaliesPanel from '../components/ops/AnomaliesPanel';
 
 interface DashboardData {
   org: {
@@ -27,18 +25,13 @@ interface DashboardData {
   }>;
 }
 
-const PHASE_HIGHLIGHT = 'Phase 1 highlights Abacus Level 1 (Regular) as the primary live course.';
-
 const BusinessPartnerDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [orgSummary, setOrgSummary] = useState<OrgDashboardSummary | null>(null);
+  const [overviewData, setOverviewData] = useState<BpOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [funnel, setFunnel] = useState<LeadSummaryResponse | null>(null);
-  const [loadingFunnel, setLoadingFunnel] = useState(false);
-  const [funnelError, setFunnelError] = useState<string | null>(null);
   const [opsSummary, setOpsSummary] = useState<OpsAnomalySummary | null>(null);
   const [opsLoading, setOpsLoading] = useState(false);
   const [opsError, setOpsError] = useState<string | null>(null);
@@ -71,7 +64,7 @@ const BusinessPartnerDashboard: React.FC = () => {
     };
   }, []);
 
-  const goToLeads = (stage?: string) => {
+  const goToBpLeads = (stage?: string) => {
     const query = stage ? `?stage=${stage}` : '';
     navigate(`/business-partner/leads${query}`);
   };
@@ -79,12 +72,15 @@ const BusinessPartnerDashboard: React.FC = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [data, summary] = await Promise.all([
+      const [data, summary, , overview] = await Promise.all([
         apiClient.get('/api/dashboard/business-partner'),
         fetchBpDashboard(),
+        fetchBpLeadSummary(),
+        fetchBpOverview(),
       ]);
       setDashboardData(data);
       setOrgSummary(summary);
+      setOverviewData(overview);
       setError(null);
     } catch (err) {
       setError('Failed to load dashboard data');
@@ -94,40 +90,17 @@ const BusinessPartnerDashboard: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadFunnel() {
-      try {
-        setLoadingFunnel(true);
-        setFunnelError(null);
-        const res = await fetchBpLeadSummary();
-        if (!isMounted) return;
-        setFunnel(res);
-      } catch (err) {
-        console.error('Failed to load BP lead funnel', err);
-        if (!isMounted) return;
-        setFunnelError('Could not load lead funnel.');
-      } finally {
-        if (isMounted) setLoadingFunnel(false);
-      }
-    }
-    loadFunnel();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   if (loading) {
     return (
       <div className="p-6 space-y-4">
         <h1 className="text-2xl font-bold mb-2">Business Partner Dashboard</h1>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           {Array.from({ length: 4 }).map((_, idx) => (
-            <Skeleton key={idx} className="h-20" />
+            <div key={idx} className="bg-gray-200 animate-pulse rounded h-20"></div>
           ))}
         </div>
-        <Skeleton className="h-48" />
-        <Skeleton className="h-64" />
+        <div className="bg-gray-200 animate-pulse rounded h-48"></div>
+        <div className="bg-gray-200 animate-pulse rounded h-64"></div>
       </div>
     );
   }
@@ -144,7 +117,7 @@ const BusinessPartnerDashboard: React.FC = () => {
     );
   }
 
-  if (!dashboardData) {
+  if (!dashboardData || !overviewData) {
     return (
       <div className="p-6">
         <h1 className="text-2xl font-bold mb-6">Business Partner Dashboard</h1>
@@ -155,155 +128,96 @@ const BusinessPartnerDashboard: React.FC = () => {
     );
   }
 
+  const FunnelCard = ({ label, value }: { label: string; value: number }) => (
+    <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+      <h3 className="text-lg font-medium text-gray-900">{label}</h3>
+      <p className="mt-1 text-3xl font-semibold text-gray-900">{value}</p>
+    </div>
+  );
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Business Partner Dashboard</h1>
-      {user?.role !== 'SUPERADMIN' && (
-        <p className="mb-4 text-sm text-gray-600 bg-blue-50 border border-blue-100 rounded px-3 py-2">
-          {PHASE_HIGHLIGHT}
-        </p>
-      )}
-      
-      {orgSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Students</div>
-            <div className="text-xl font-semibold">{orgSummary.totals.students}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Enrollments</div>
-            <div className="text-xl font-semibold">
-              {orgSummary.totals.enrollmentsOngoing} ongoing / {orgSummary.totals.enrollmentsCompleted} completed
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Finance</div>
-            <div className="text-sm">Collected: {formatCurrency(orgSummary.finance.paymentsTotal)}</div>
-            <div className="text-sm">Pending: {formatCurrency(orgSummary.finance.duesPending)}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Assessments</div>
-            <div className="text-sm">Exam attempts: {orgSummary.assessments.examAttempts}</div>
-            <div className="text-sm">WS attempts: {orgSummary.assessments.worksheetAttempts}</div>
-            <div className="text-sm">
-              Avg score: {orgSummary.assessments.avgExamScorePercent ?? '-'}% /{' '}
-              {orgSummary.assessments.avgWorksheetScorePercent ?? '-'}%
-            </div>
-          </div>
-        </div>
-      )}
 
-      <div className="mb-8">
-        <AnomaliesPanel summary={opsSummary} loading={opsLoading} error={opsError} maxItems={3} />
-      </div>
-
-      {/* Org Info */}
-      <div className="bg-white rounded-lg shadow p-6 mb-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="border rounded p-4">
-            <h3 className="text-lg font-medium text-gray-700">Business Partner</h3>
-            <p className="text-xl font-bold text-blue-600">{dashboardData.org.businessPartnerCode}</p>
-          </div>
-          <div className="border rounded p-4">
-            <h3 className="text-lg font-medium text-gray-700">Franchises</h3>
-            <p className="text-xl font-bold text-green-600">{dashboardData.org.franchisesCount}</p>
-          </div>
-          <div className="border rounded p-4">
-            <h3 className="text-lg font-medium text-gray-700">Centers</h3>
-            <p className="text-xl font-bold text-purple-600">{dashboardData.org.centersCount}</p>
-          </div>
+      {/* Basic Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Franchises</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.org.franchisesCount}</p>
         </div>
-      </div>
-      
-      {/* Key Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Total Students</h3>
-          <p className="text-3xl font-bold text-blue-600">{dashboardData.totals.studentsCount}</p>
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Centers</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.org.centersCount}</p>
         </div>
-        
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Active Enrollments</h3>
-          <p className="text-3xl font-bold text-green-600">{dashboardData.totals.activeEnrollmentsCount}</p>
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Students</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.totals.studentsCount}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Conversion Rate</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{overviewData.leadConversionRate.conversionRate}%</p>
         </div>
       </div>
 
-      {/* Lead Funnel */}
-      <div className="bg-white rounded-lg shadow p-6 mb-8">
+      {/* Lead Funnel Summary */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">Lead Funnel</h2>
-          {loadingFunnel && <span className="text-sm text-gray-500">Loading...</span>}
-          {funnelError && <span className="text-sm text-red-500">{funnelError}</span>}
+          <h2 className="text-xl font-semibold">Sales Funnel Summary</h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <FunnelCard label="New" value={funnel?.byStage.NEW ?? 0} onClick={() => goToLeads('NEW')} />
-          <FunnelCard label="Contacted" value={funnel?.byStage.CONTACTED ?? 0} onClick={() => goToLeads('CONTACTED')} />
-          <FunnelCard label="Trial Booked" value={funnel?.byStage.TRIAL_BOOKED ?? 0} onClick={() => goToLeads('TRIAL_BOOKED')} />
-          <FunnelCard label="Trial Done" value={funnel?.byStage.TRIAL_DONE ?? 0} onClick={() => goToLeads('TRIAL_DONE')} />
-          <FunnelCard label="Converted" value={funnel?.byStage.CONVERTED ?? 0} onClick={() => goToLeads('CONVERTED')} />
-          <FunnelCard label="Lost" value={funnel?.byStage.LOST ?? 0} onClick={() => goToLeads('LOST')} />
+          <FunnelCard label="New" value={overviewData.leadFunnel.byStage.NEW} />
+          <FunnelCard label="Contacted" value={overviewData.leadFunnel.byStage.CONTACTED} />
+          <FunnelCard label="Trial Booked" value={overviewData.leadFunnel.byStage.TRIAL_BOOKED} />
+          <FunnelCard label="Trial Done" value={overviewData.leadFunnel.byStage.TRIAL_DONE} />
+          <FunnelCard label="Converted" value={overviewData.leadFunnel.byStage.CONVERTED} />
+          <FunnelCard label="Lost" value={overviewData.leadFunnel.byStage.LOST} />
         </div>
-        <div className="mt-6">
-          <h3 className="text-lg font-semibold mb-2">By Source</h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <FunnelCard label="Campaign" value={funnel?.bySource.CAMPAIGN ?? 0} compact />
-            <FunnelCard label="Referral" value={funnel?.bySource.REFERRAL ?? 0} compact />
-            <FunnelCard label="Walk In" value={funnel?.bySource.WALK_IN ?? 0} compact />
-            <FunnelCard label="Whatsapp" value={funnel?.bySource.WHATSAPP ?? 0} compact />
-            <FunnelCard label="Other" value={funnel?.bySource.OTHER ?? 0} compact />
-          </div>
-          <div className="mt-3 text-sm text-gray-700">Total leads: {funnel?.totalLeads ?? 0}</div>
-          <div className="mt-3">
-            <button className="btn btn-outline btn-sm" onClick={() => goToLeads()}>
-              View all leads
-            </button>
-          </div>
+        <div className="mt-3 text-sm text-gray-700">Total leads: {overviewData.leadFunnel.totalLeads}</div>
+        <div className="mt-3">
+          <button className="btn btn-outline btn-sm" onClick={() => goToBpLeads()}>
+            View All Leads
+          </button>
         </div>
       </div>
-      
-      {/* Per-Center Summary */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Centers Overview</h2>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Center</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Students</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active Enrollments</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {dashboardData.perCenter.map((center, index) => (
-                <tr key={index}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{center.centerCode}</div>
-                    <div className="text-sm text-gray-500">{center.centerName}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {center.studentsCount}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {center.activeEnrollmentsCount}
-                  </td>
+
+      {orgSummary && (
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">Centers Overview</h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Center</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Students</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active Enrollments</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {(orgSummary as any).perCenter?.map((center: any, index: number) => (
+                  <tr key={index}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{center.centerName}</div>
+                      <div className="text-sm text-gray-500">{center.centerCode}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{center.studentsCount}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{center.activeEnrollmentsCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
+
+      {opsSummary && (
+        <AnomaliesPanel
+          summary={opsSummary}
+          loading={opsLoading}
+          error={opsError}
+        />
+      )}
     </div>
   );
 };
 
 export default BusinessPartnerDashboard;
-
-const FunnelCard: React.FC<{ label: string; value: number; compact?: boolean; onClick?: () => void }> = ({ label, value, compact, onClick }) => (
-  <div
-    className={`border rounded p-4 ${compact ? 'text-center' : ''} ${onClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-300' : ''}`}
-    onClick={onClick}
-  >
-    <h4 className="text-sm font-medium text-gray-600">{label}</h4>
-    <p className="text-2xl font-bold text-indigo-600">{value}</p>
-  </div>
-);

@@ -46,23 +46,10 @@ import superadminSalesRoutes from './routes/superadminSales';
 import certificateRoutes from './routes/certificates.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import leadAnalyticsRoutes from './routes/leadAnalytics';
-import licensingSummaryRoutes from './routes/licensingSummary.routes';
-import moduleAttemptsRoutes from './routes/moduleAttempts.routes';
-import worksheetAttemptsRoutes from './routes/worksheetAttempts.routes';
-import examAttemptsRoutes from './routes/examAttempts.routes';
-import teacherDashboardRoutes from './routes/teacherDashboard.routes';
-import centerDashboardRoutes from './routes/centerDashboard.routes';
-import examQuestionsRoutes from './routes/examQuestions.routes';
-import examDeliveryRoutes from './routes/examDelivery.routes';
-import teacherExamReviewRoutes from './routes/teacherExamReview.routes';
-import assessmentAnalyticsRoutes from './routes/assessmentAnalytics.routes';
-import abacusExamsRoutes from './routes/abacusExams';
-import orgDashboardRoutes from './routes/orgDashboard.routes';
-import salesLeadsRoutes from './routes/salesLeads.routes';
-import opsAnomaliesRoutes from './routes/opsAnomalies.routes';
-import retentionAssistRoutes from './routes/retentionAssist.routes';
 import healthRoutes from './routes/health.routes';
 import coordinatorRoutes from './routes/coordinator.routes';
+import salesLeadsRoutes from './routes/salesLeads.routes';
+import dashboardOverviewRoutes from './routes/dashboardOverview.routes';
 
 export function createApp() {
   const app = express();
@@ -165,8 +152,6 @@ export function createApp() {
   app.use('/superadmin/abacus-worksheets', abacusWorksheetsRoutes);
   app.use('/superadmin/abacus/students', abacusStudentsRoutes);
   app.use('/superadmin/abacus/enrollments', abacusEnrollmentsRoutes);
-  app.use('/superadmin/abacus/exams', abacusExamsRoutes);
-  app.use('/superadmin/abacus/exams', examQuestionsRoutes);
   app.use('/teacher/abacus', teacherAbacusRoutes);
   app.use('/api/teacher-assignments', teacherAssignmentsRoutes);
   app.use('/api/schedule', abacusScheduleRoutes);
@@ -183,7 +168,6 @@ export function createApp() {
   app.use('/api', auditRoutes);
   app.use('/api', activityRoutes);
   app.use('/api', licenseOrdersRoutes);
-  app.use('/api/licensing', licensingSummaryRoutes);
   app.use('/api', licensingAllocationsRoutes);
   app.use('/api', commercialHistoryRoutes);
   app.use('/api/superadmin', superadminSalesRoutes);
@@ -192,18 +176,8 @@ export function createApp() {
   app.use('/api', certificateRoutes);
   app.use('/api', superadminDashboardRoutes);
   app.use('/api/dashboard', superadminOverviewRoutes);
-  app.use('/api', moduleAttemptsRoutes);
-  app.use('/api', worksheetAttemptsRoutes);
-  app.use('/api', examAttemptsRoutes);
-  app.use('/api', examDeliveryRoutes);
-  app.use('/api', teacherExamReviewRoutes);
-  app.use('/api', assessmentAnalyticsRoutes);
-  app.use('/api', orgDashboardRoutes);
   app.use('/api', salesLeadsRoutes);
-  app.use('/api', opsAnomaliesRoutes);
-  app.use('/api', retentionAssistRoutes);
-  app.use('/api', teacherDashboardRoutes);
-  app.use('/api', centerDashboardRoutes);
+  app.use('/api', dashboardOverviewRoutes); // Added dashboard overview routes
   app.use('/api', healthRoutes);
   app.use('/api/coordinator', coordinatorRoutes);
 

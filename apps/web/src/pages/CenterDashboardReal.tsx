@@ -1,335 +1,202 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
-import Skeleton from '../components/ui/Skeleton';
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { fetchCenterOverview, CenterOverview } from '../api/dashboardOverviewClient';
 import { apiClient } from '../utils/apiClient';
-import AnomaliesPanel from '../components/ops/AnomaliesPanel';
-import RetentionSignalsPanel from '../components/assist/RetentionSignalsPanel';
-import { fetchCenterDashboard } from '../api/centerDashboardClient';
-import { OrgDashboardSummary } from '../api/bpDashboardClient';
-import { fetchCenterLeadSummary } from '../api/centerLeadsClient';
-import { formatCurrency, formatPercent } from '../utils/formatters';
-import { fetchCenterAssistSignals, RetentionSignal, RetentionSignalsResponse } from '../api/retentionAssistClient';
-import { fetchOpsAnomalySummary, OpsAnomalySummary } from '../api/opsAnomaliesClient';
-import { useAuth } from '../contexts/AuthContext';
-import { isCoordinator, isHeadCoordinator } from '../lib/roles';
 
-type StudentRow = {
-  enrollmentId: number;
-  studentName: string;
-  courseTitle: string;
-  courseCode: string;
-  progressPercent: number;
-  completedModules: number;
-  completedWorksheets: number;
-  completedExams: number;
-};
-
-type CenterOverviewResponse = {
-  students: StudentRow[];
-};
-
-const CenterDashboard: React.FC = () => {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const [students, setStudents] = useState<StudentRow[]>([]);
-  const [orgSummary, setOrgSummary] = useState<OrgDashboardSummary | null>(null);
-  const [leadSummary, setLeadSummary] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+const CenterDashboardReal: React.FC = () => {
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [overviewData, setOverviewData] = useState<CenterOverview | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [opsSummary, setOpsSummary] = useState<OpsAnomalySummary | null>(null);
-  const [opsLoading, setOpsLoading] = useState(false);
-  const [opsError, setOpsError] = useState<string | null>(null);
-  const [assistSignals, setAssistSignals] = useState<RetentionSignal[]>([]);
-  const [assistSummary, setAssistSummary] = useState<RetentionSignalsResponse['summary'] | null>(null);
-  const [assistLoading, setAssistLoading] = useState(false);
-  const [assistError, setAssistError] = useState<string | null>(null);
-
-  const canViewLeads = useMemo(() => !isHeadCoordinator(user), [user]);
-  const leadsBasePath = useMemo(() => (isCoordinator(user) ? '/coordinator/leads' : '/center/leads'), [user]);
 
   useEffect(() => {
-    const load = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
-        const baseRequests = [apiClient.get('/api/dashboard/center/overview'), fetchCenterDashboard()];
-        const [data, summary, leads] = await Promise.all([
-          ...baseRequests,
-          canViewLeads ? fetchCenterLeadSummary() : Promise.resolve(null),
+        const [dashboard, overview] = await Promise.all([
+          apiClient.get('/api/dashboard/center'),
+          fetchCenterOverview(),
         ]);
-        const payload: CenterOverviewResponse = (data as any)?.data ?? data;
-        setStudents(payload?.students || []);
-        setOrgSummary(summary);
-        setLeadSummary(leads);
+        setDashboardData(dashboard);
+        setOverviewData(overview);
         setError(null);
       } catch (err) {
-        console.error('Failed to load center dashboard', err);
         setError('Failed to load dashboard data');
+        console.error('Error fetching dashboard:', err);
       } finally {
         setLoading(false);
       }
     };
-    load();
-  }, [canViewLeads]);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadOpsAnomalies() {
-      try {
-        setOpsLoading(true);
-        setOpsError(null);
-        const res = await fetchOpsAnomalySummary();
-        if (!isMounted) return;
-        setOpsSummary(res);
-      } catch (err) {
-        console.error('Failed to load ops anomalies', err);
-        if (!isMounted) return;
-        setOpsError('Failed to load anomalies.');
-        setOpsSummary(null);
-      } finally {
-        if (isMounted) setOpsLoading(false);
-      }
-    }
-    loadOpsAnomalies();
-    return () => {
-      isMounted = false;
-    };
+    fetchData();
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadAssistSignals() {
-      try {
-        setAssistLoading(true);
-        setAssistError(null);
-        const res = await fetchCenterAssistSignals({ window: 14, limit: 50, offset: 0 });
-        if (!isMounted) return;
-        setAssistSignals(res.items ?? []);
-        setAssistSummary(res.summary ?? null);
-      } catch (err) {
-        console.error('Failed to load assist signals', err);
-        if (!isMounted) return;
-        setAssistError('Failed to load signals.');
-      } finally {
-        if (isMounted) setAssistLoading(false);
-      }
-    }
-    loadAssistSignals();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  if (loading) {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-bold mb-6">Center Dashboard</h1>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-gray-200 animate-pulse rounded h-24"></div>
+          <div className="bg-gray-200 animate-pulse rounded h-24"></div>
+          <div className="bg-gray-200 animate-pulse rounded h-24"></div>
+          <div className="bg-gray-200 animate-pulse rounded h-24"></div>
+        </div>
+      </div>
+    );
+  }
 
-  const goToLeads = (stage?: string) => {
-    if (!canViewLeads) return;
-    const query = stage ? `?stage=${stage}` : '';
-    navigate(`${leadsBasePath}${query}`);
-  };
+  if (error) {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-bold mb-6">Center Dashboard</h1>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+          <strong className="font-bold">Error! </strong>
+          <span className="block sm:inline">{error}</span>
+        </div>
+      </div>
+    );
+  }
 
-  const statusBadge = (progress: number) => {
-    if (progress >= 100) return <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Completed</span>;
-    if (progress > 0) return <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">In progress</span>;
-    return <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Not started</span>;
-  };
+  if (!dashboardData || !overviewData) {
+    return (
+      <div className="p-6">
+        <h1 className="text-2xl font-bold mb-6">Center Dashboard</h1>
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded relative">
+          <span className="block sm:inline">No dashboard data available</span>
+        </div>
+      </div>
+    );
+  }
+
+  const FunnelCard = ({ label, value }: { label: string; value: number }) => (
+    <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+      <h3 className="text-lg font-medium text-gray-900">{label}</h3>
+      <p className="mt-1 text-3xl font-semibold text-gray-900">{value}</p>
+    </div>
+  );
 
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Center Dashboard</h1>
-
-      {loading && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            {Array.from({ length: 4 }).map((_, idx) => (
-              <Skeleton key={idx} className="h-20" />
-            ))}
-          </div>
-          <Skeleton className="h-48" />
-          <Skeleton className="h-48" />
+      
+      {/* Basic Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Students</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.totals.studentsCount}</p>
         </div>
-      )}
-
-      {!loading && error && (
-        <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded" role="alert">
-          <strong className="font-bold">Error: </strong>
-          <span className="block sm:inline">{error}</span>
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Active Enrollments</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.totals.activeEnrollmentsCount}</p>
         </div>
-      )}
-
-      {canViewLeads && leadSummary && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Lead Funnel</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <FunnelCard label="New" value={leadSummary.byStage?.NEW ?? 0} onClick={() => goToLeads('NEW')} />
-            <FunnelCard label="Contacted" value={leadSummary.byStage?.CONTACTED ?? 0} onClick={() => goToLeads('CONTACTED')} />
-            <FunnelCard label="Trial Booked" value={leadSummary.byStage?.TRIAL_BOOKED ?? 0} onClick={() => goToLeads('TRIAL_BOOKED')} />
-            <FunnelCard label="Trial Done" value={leadSummary.byStage?.TRIAL_DONE ?? 0} onClick={() => goToLeads('TRIAL_DONE')} />
-            <FunnelCard label="Converted" value={leadSummary.byStage?.CONVERTED ?? 0} onClick={() => goToLeads('CONVERTED')} />
-            <FunnelCard label="Lost" value={leadSummary.byStage?.LOST ?? 0} onClick={() => goToLeads('LOST')} />
-          </div>
-          <div className="mt-3 text-sm text-gray-700">Total leads: {leadSummary.totalLeads ?? 0}</div>
-          <div className="mt-3">
-            <button className="btn btn-outline btn-sm" onClick={() => goToLeads()}>
-              View all leads
-            </button>
-          </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Completed Enrollments</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.totals.completedEnrollmentsCount}</p>
         </div>
-      )}
-
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xl font-semibold">Student Risk Signals</h2>
-          {assistSummary ? (
-            <span className="text-xs text-gray-500">{assistSummary.totalSignals} signals</span>
-          ) : null}
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Conversion Rate</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{overviewData.leadConversionRate.conversionRate}%</p>
         </div>
-        <RetentionSignalsPanel
-          title="Top student signals"
-          signals={assistSignals}
-          loading={assistLoading}
-          error={assistError}
-          maxItems={5}
-          showDetails={false}
-        />
-        {assistSummary?.byCode && Object.keys(assistSummary.byCode).length > 0 && (
-          <div className="mt-2 text-xs text-gray-600">
-            {Object.entries(assistSummary.byCode).map(([code, count]) => (
-              <span key={code} className="inline-block mr-3">
-                {code}: {count}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
-      {orgSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Students</div>
-            <div className="text-xl font-semibold">{orgSummary.totals.students}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Enrollments</div>
-            <div className="text-xl font-semibold">
-              {orgSummary.totals.enrollmentsOngoing} ongoing / {orgSummary.totals.enrollmentsCompleted} completed
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Finance</div>
-            <div className="text-sm">Collected: {formatCurrency(orgSummary.finance.paymentsTotal)}</div>
-            <div className="text-sm">Pending: {formatCurrency(orgSummary.finance.duesPending)}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Assessments</div>
-            <div className="text-sm">Exam attempts: {orgSummary.assessments.examAttempts}</div>
-            <div className="text-sm">WS attempts: {orgSummary.assessments.worksheetAttempts}</div>
-            <div className="text-sm">
-              Avg score: {formatPercent(orgSummary.assessments.avgExamScorePercent)} / {formatPercent(orgSummary.assessments.avgWorksheetScorePercent)}
-              {orgSummary.assessments.avgWorksheetScorePercent ?? '-'}%
-            </div>
-          </div>
+      {/* Lead Funnel */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Sales Funnel</h2>
         </div>
-      )}
-
-      <div className="mb-6">
-        <AnomaliesPanel summary={opsSummary} loading={opsLoading} error={opsError} maxItems={3} />
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <FunnelCard label="New" value={overviewData.leadFunnel.byStage.NEW} />
+          <FunnelCard label="Contacted" value={overviewData.leadFunnel.byStage.CONTACTED} />
+          <FunnelCard label="Trial Booked" value={overviewData.leadFunnel.byStage.TRIAL_BOOKED} />
+          <FunnelCard label="Trial Done" value={overviewData.leadFunnel.byStage.TRIAL_DONE} />
+          <FunnelCard label="Converted" value={overviewData.leadFunnel.byStage.CONVERTED} />
+          <FunnelCard label="Lost" value={overviewData.leadFunnel.byStage.LOST} />
+        </div>
+        <div className="mt-3 text-sm text-gray-700">Total leads: {overviewData.leadFunnel.totalLeads}</div>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <LoadingSpinner size="lg" />
-        </div>
-      ) : error ? (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
-          <strong className="font-bold">Error! </strong>
-          <span className="block sm:inline">{error}</span>
-        </div>
-      ) : (
+      {/* Follow-ups and Conversions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        {/* Follow-ups due today */}
         <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Students & Progress</h2>
-            <span className="text-sm text-gray-500">Total: {students.length}</span>
-          </div>
-          {students.length === 0 ? (
-            <p className="text-gray-500">No students found for this center.</p>
-          ) : (
+          <h2 className="text-xl font-semibold mb-4">Follow-ups Due Today</h2>
+          {overviewData.followUpsDueToday.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Student
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Course
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Progress
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Modules
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Worksheets
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Exams
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Action
-                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stage</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {students.map((row) => (
-                    <tr key={row.enrollmentId}>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {row.studentName || '—'}
+                  {overviewData.followUpsDueToday.map((lead: any) => (
+                    <tr key={lead.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{lead.firstName} {lead.lastName}</div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                        <div className="flex flex-col">
-                          <span className="font-medium">{row.courseTitle || row.courseCode}</span>
-                          <span className="text-xs text-gray-500">{row.courseCode}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                        <div className="flex items-center space-x-2">
-                          <span>{row.progressPercent}%</span>
-                          {statusBadge(row.progressPercent)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{row.completedModules}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{row.completedWorksheets}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{row.completedExams}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm">
-                        <Link
-                          to={`/teacher/enrollments/${row.enrollmentId}`}
-                          className="text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          View progress
-                        </Link>
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{lead.contactPhone}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{lead.stage}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          ) : (
+            <p className="text-gray-500">No follow-ups due today</p>
           )}
         </div>
-      )}
+
+        {/* Converted Leads */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Recent Conversions</h2>
+          {overviewData.convertedLeads.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student ID</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {overviewData.convertedLeads.slice(0, 5).map((lead: any) => (
+                    <tr key={lead.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{lead.firstName} {lead.lastName}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(lead.createdAt).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{lead.convertedToStudentId ? `STU${lead.convertedToStudentId.toString().padStart(4, '0')}` : 'N/A'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-gray-500">No recent conversions</p>
+          )}
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Link to="/center/leads" className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded text-center">
+            Manage Leads
+          </Link>
+          <Link to="/center/students" className="bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded text-center">
+            View Students
+          </Link>
+          <Link to="/center/enrollments" className="bg-purple-500 hover:bg-purple-600 text-white py-2 px-4 rounded text-center">
+            View Enrollments
+          </Link>
+        </div>
+      </div>
     </div>
   );
 };
 
-export default CenterDashboard;
-
-const FunnelCard: React.FC<{ label: string; value: number; compact?: boolean; onClick?: () => void }> = ({ label, value, compact, onClick }) => (
-  <div
-    className={`border rounded p-4 ${compact ? 'text-center' : ''} ${onClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-300' : ''}`}
-    onClick={onClick}
-  >
-    <h4 className="text-sm font-medium text-gray-600">{label}</h4>
-    <p className="text-2xl font-bold text-indigo-600">{value}</p>
-  </div>
-);
+export default CenterDashboardReal;

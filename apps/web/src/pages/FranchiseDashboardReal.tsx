@@ -4,10 +4,9 @@ import Skeleton from '../components/ui/Skeleton';
 import { apiClient } from '../utils/apiClient';
 import AnomaliesPanel from '../components/ops/AnomaliesPanel';
 import { fetchFranchiseDashboard } from '../api/franchiseDashboardClient';
-import { OrgDashboardSummary } from '../api/bpDashboardClient';
 import { fetchFranchiseLeadSummary } from '../api/franchiseLeadsClient';
-import { formatCurrency } from '../utils/formatters';
 import { fetchOpsAnomalySummary, OpsAnomalySummary } from '../api/opsAnomaliesClient';
+import { fetchFranchiseOverview, FranchiseOverview } from '../api/dashboardOverviewClient';
 
 interface DashboardData {
   org: {
@@ -29,8 +28,8 @@ interface DashboardData {
 const FranchiseDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [orgSummary, setOrgSummary] = useState<OrgDashboardSummary | null>(null);
   const [leadSummary, setLeadSummary] = useState<any>(null);
+  const [overviewData, setOverviewData] = useState<FranchiseOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [opsSummary, setOpsSummary] = useState<OpsAnomalySummary | null>(null);
@@ -73,14 +72,15 @@ const FranchiseDashboard: React.FC = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [data, summary, leads] = await Promise.all([
+      const [data, , leads, overview] = await Promise.all([
         apiClient.get('/api/dashboard/franchise'),
         fetchFranchiseDashboard(),
         fetchFranchiseLeadSummary(),
+        fetchFranchiseOverview(),
       ]);
       setDashboardData(data);
-      setOrgSummary(summary);
       setLeadSummary(leads);
+      setOverviewData(overview);
       setError(null);
     } catch (err) {
       setError('Failed to load dashboard data');
@@ -117,7 +117,7 @@ const FranchiseDashboard: React.FC = () => {
     );
   }
 
-  if (!dashboardData) {
+  if (!dashboardData || !overviewData) {
     return (
       <div className="p-6">
         <h1 className="text-2xl font-bold mb-6">Franchise Dashboard</h1>
@@ -128,9 +128,36 @@ const FranchiseDashboard: React.FC = () => {
     );
   }
 
+  const FunnelCard = ({ label, value }: { label: string; value: number }) => (
+    <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+      <h3 className="text-lg font-medium text-gray-900">{label}</h3>
+      <p className="mt-1 text-3xl font-semibold text-gray-900">{value}</p>
+    </div>
+  );
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Franchise Dashboard</h1>
+
+      {/* Basic Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Centers</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.org.centersCount}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Students</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.totals.studentsCount}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Active Enrollments</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{dashboardData.totals.activeEnrollmentsCount}</p>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900">Conversion Rate</h3>
+          <p className="mt-1 text-3xl font-semibold text-gray-900">{overviewData.leadConversionRate.conversionRate}%</p>
+        </div>
+      </div>
 
       {leadSummary && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
@@ -138,125 +165,98 @@ const FranchiseDashboard: React.FC = () => {
             <h2 className="text-xl font-semibold">Lead Funnel</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <FunnelCard label="New" value={leadSummary.byStage?.NEW ?? 0} onClick={() => goToLeads('NEW')} />
-            <FunnelCard label="Contacted" value={leadSummary.byStage?.CONTACTED ?? 0} onClick={() => goToLeads('CONTACTED')} />
-            <FunnelCard label="Trial Booked" value={leadSummary.byStage?.TRIAL_BOOKED ?? 0} onClick={() => goToLeads('TRIAL_BOOKED')} />
-            <FunnelCard label="Trial Done" value={leadSummary.byStage?.TRIAL_DONE ?? 0} onClick={() => goToLeads('TRIAL_DONE')} />
-            <FunnelCard label="Converted" value={leadSummary.byStage?.CONVERTED ?? 0} onClick={() => goToLeads('CONVERTED')} />
-            <FunnelCard label="Lost" value={leadSummary.byStage?.LOST ?? 0} onClick={() => goToLeads('LOST')} />
+            <FunnelCard label="New" value={overviewData.leadFunnel.byStage.NEW} />
+            <FunnelCard label="Contacted" value={overviewData.leadFunnel.byStage.CONTACTED} />
+            <FunnelCard label="Trial Booked" value={overviewData.leadFunnel.byStage.TRIAL_BOOKED} />
+            <FunnelCard label="Trial Done" value={overviewData.leadFunnel.byStage.TRIAL_DONE} />
+            <FunnelCard label="Converted" value={overviewData.leadFunnel.byStage.CONVERTED} />
+            <FunnelCard label="Lost" value={overviewData.leadFunnel.byStage.LOST} />
           </div>
-          <div className="mt-3 text-sm text-gray-700">Total leads: {leadSummary.totalLeads ?? 0}</div>
+          <div className="mt-3 text-sm text-gray-700">Total leads: {overviewData.leadFunnel.totalLeads}</div>
           <div className="mt-3">
             <button className="btn btn-outline btn-sm" onClick={() => goToLeads()}>
-              View all leads
+              View All Leads
             </button>
           </div>
         </div>
       )}
 
-      {orgSummary && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Students</div>
-            <div className="text-xl font-semibold">{orgSummary.totals.students}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Enrollments</div>
-            <div className="text-xl font-semibold">
-              {orgSummary.totals.enrollmentsOngoing} ongoing / {orgSummary.totals.enrollmentsCompleted} completed
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Finance</div>
-            <div className="text-sm">Collected: {formatCurrency(orgSummary.finance.paymentsTotal)}</div>
-            <div className="text-sm">Pending: {formatCurrency(orgSummary.finance.duesPending)}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-500">Assessments</div>
-            <div className="text-sm">Exam attempts: {orgSummary.assessments.examAttempts}</div>
-            <div className="text-sm">WS attempts: {orgSummary.assessments.worksheetAttempts}</div>
-            <div className="text-sm">
-              Avg score: {orgSummary.assessments.avgExamScorePercent ?? '-'}% /{' '}
-              {orgSummary.assessments.avgWorksheetScorePercent ?? '-'}%
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="mb-8">
-        <AnomaliesPanel summary={opsSummary} loading={opsLoading} error={opsError} maxItems={3} />
-      </div>
-      
-      {/* Org Info */}
-      <div className="bg-white rounded-lg shadow p-6 mb-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="border rounded p-4">
-            <h3 className="text-lg font-medium text-gray-700">Franchise</h3>
-            <p className="text-xl font-bold text-blue-600">{dashboardData.org.franchiseCode}</p>
-          </div>
-          <div className="border rounded p-4">
-            <h3 className="text-lg font-medium text-gray-700">Centers</h3>
-            <p className="text-xl font-bold text-green-600">{dashboardData.org.centersCount}</p>
-          </div>
-        </div>
-      </div>
-      
-      {/* Key Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Total Students</h3>
-          <p className="text-3xl font-bold text-blue-600">{dashboardData.totals.studentsCount}</p>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Active Enrollments</h3>
-          <p className="text-3xl font-bold text-green-600">{dashboardData.totals.activeEnrollmentsCount}</p>
-        </div>
-      </div>
-      
-      {/* Per-Center Summary */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Centers Overview</h2>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Center</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Students</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Active Enrollments</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {dashboardData.perCenter.map((center, index) => (
-                <tr key={index}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{center.centerCode}</div>
-                    <div className="text-sm text-gray-500">{center.centerName}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {center.studentsCount}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {center.activeEnrollmentsCount}
-                  </td>
+      {/* Center Leaderboard */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="text-xl font-semibold mb-4">Center Leaderboard (Top 10)</h2>
+        {overviewData.centerLeaderboard.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Center</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Leads</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Converted</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Conversion %</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {overviewData.centerLeaderboard.map((center, index) => (
+                  <tr key={index}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{center.centerName}</div>
+                      <div className="text-sm text-gray-500">{center.centerCode}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{center.totalLeads}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{center.convertedLeads}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{center.conversionRate}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-500">No center data available</p>
+        )}
       </div>
+
+      {/* Stalled Leads */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="text-xl font-semibold mb-4">Stalled Leads (Last Activity &gt; 7 days)</h2>
+        {overviewData.stalledLeads.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stage</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Activity</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {overviewData.stalledLeads.slice(0, 10).map((lead) => (
+                  <tr key={lead.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{lead.firstName} {lead.lastName}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{lead.contactPhone}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{lead.stage}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(lead.updatedAt).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-500">No stalled leads</p>
+        )}
+      </div>
+
+      {opsSummary && (
+        <AnomaliesPanel
+          summary={opsSummary}
+          loading={opsLoading}
+          error={opsError}
+        />
+      )}
     </div>
   );
 };
 
 export default FranchiseDashboard;
-
-const FunnelCard: React.FC<{ label: string; value: number; compact?: boolean; onClick?: () => void }> = ({ label, value, compact, onClick }) => (
-  <div
-    className={`border rounded p-4 ${compact ? 'text-center' : ''} ${onClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-300' : ''}`}
-    onClick={onClick}
-  >
-    <h4 className="text-sm font-medium text-gray-600">{label}</h4>
-    <p className="text-2xl font-bold text-indigo-600">{value}</p>
-  </div>
-);
