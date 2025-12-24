@@ -54,6 +54,7 @@ const CoordinatorLayout: React.FC = () => {
                     Dashboard
                   </Link>
                 </li>
+                {/* Removed leads link - coordinators should not access sales leads */}
                 <li>
                   <Link to="/coordinator/leads" className="block py-2 px-4 rounded hover:bg-gray-100">
                     Leads

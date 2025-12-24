@@ -99,6 +99,8 @@ const App: React.FC = () => {
               <Route index element={<CenterDashboardReal />} />
               <Route path="dashboard" element={<CenterDashboardReal />} />
               <Route path="leads" element={<Navigate to="/center/leads/active" replace />} />
+              {/* Removed coordinator leads access - coordinators should not access sales leads */}
+              {/* <Route path="leads" element={<CoordinatorLeadsPage />} /> */}
               <Route path="leads/:filter" element={<CenterDashboardReal />} />
             </Route>
 

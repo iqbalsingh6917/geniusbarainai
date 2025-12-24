@@ -262,6 +262,27 @@ describe('Sales leads routes', () => {
     expect(updated.lostReason).toBe('No response');
   });
 
+  it('denies access to coordinator, teacher, and student roles', async () => {
+    const orgs = await seedOrgTree();
+    const coordinator = await prisma.user.create({
+      data: { username: 'coordinator', passwordHash: 'x', role: 'COORDINATOR', orgUnitId: orgs.center.id },
+    });
+    const teacher = await prisma.user.create({
+      data: { username: 'teacher', passwordHash: 'x', role: 'TEACHER', orgUnitId: orgs.center.id },
+    });
+    const student = await prisma.user.create({
+      data: { username: 'student', passwordHash: 'x', role: 'STUDENT', orgUnitId: orgs.center.id },
+    });
+
+    const coordinatorToken = makeToken({ id: coordinator.id, role: coordinator.role, orgUnitId: coordinator.orgUnitId });
+    const teacherToken = makeToken({ id: teacher.id, role: teacher.role, orgUnitId: teacher.orgUnitId });
+    const studentToken = makeToken({ id: student.id, role: student.role, orgUnitId: student.orgUnitId });
+
+    await request(app).get('/api/leads').set('Authorization', `Bearer ${coordinatorToken}`).expect(403);
+    await request(app).get('/api/leads').set('Authorization', `Bearer ${teacherToken}`).expect(403);
+    await request(app).get('/api/leads').set('Authorization', `Bearer ${studentToken}`).expect(403);
+  });
+
   it('applies pagination defaults', async () => {
     const orgs = await seedOrgTree();
     const { bpUser } = await seedUsers(orgs);
