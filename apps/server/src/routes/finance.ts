@@ -2,12 +2,13 @@ import { Router, Response } from 'express';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { authRequired, superadminOnly, AuthRequest } from '../middleware/auth';
 import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
-import { 
-  isBusinessPartner, 
-  isFranchise, 
-  isCenterManager, 
-  isAdmissions, 
-  isTeacher 
+import {
+  isBusinessPartner,
+  isCenterManager,
+  isFranchise,
+  isHeadCoordinator,
+  isAdmissions,
+  isTeacher,
 } from '../constants/roles';
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
@@ -28,6 +29,14 @@ import { isSuperadmin } from '../constants/roles';
 const router = Router();
 const prisma = new PrismaClient();
 const canAccessSettlements = (role?: string) =>
+  !!role &&
+  (isSuperadmin(role) ||
+    isBusinessPartner(role) ||
+    isFranchise(role) ||
+    isCenterManager(role) ||
+    isHeadCoordinator(role));
+
+const canManageSettlements = (role?: string) =>
   !!role && (isSuperadmin(role) || isBusinessPartner(role) || isFranchise(role) || isCenterManager(role));
 const EXPORT_MAX_ROWS = 50000;
 
@@ -326,12 +335,12 @@ router.post('/transactions', authRequired, superadminOnly, async (req: AuthReque
 // Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
 router.post('/settlements/preview', authRequired, async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || !canAccessSettlements(req.user.role)) {
+    if (!req.user || !canManageSettlements(req.user.role)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
     }
 
     const parsed = settlementPreviewSchema.parse(req.body);
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     if (!allowedOrgUnits.includes(parsed.orgUnitId)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
@@ -368,12 +377,12 @@ router.post('/settlements/preview', authRequired, async (req: AuthRequest, res: 
 // Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
 router.post('/settlements', authRequired, async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || !canAccessSettlements(req.user.role)) {
+    if (!req.user || !canManageSettlements(req.user.role)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
     }
 
     const parsed = settlementCreateSchema.parse(req.body);
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     if (!allowedOrgUnits.includes(parsed.orgUnitId)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
@@ -441,7 +450,7 @@ router.get('/settlements', authRequired, async (req: AuthRequest, res: Response)
     }
 
     const parsed = settlementListSchema.parse(req.query);
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     if (parsed.orgUnitId && !allowedOrgUnits.includes(parsed.orgUnitId)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
@@ -496,7 +505,7 @@ router.get('/settlements/export.csv', authRequired, async (req: AuthRequest, res
     }
 
     const parsed = settlementListSchema.parse(req.query);
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     if (parsed.orgUnitId && !allowedOrgUnits.includes(parsed.orgUnitId)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
@@ -598,7 +607,7 @@ router.get('/settlements/:id/export.csv', authRequired, async (req: AuthRequest,
       return fail(res, 404, 'NOT_FOUND', 'Settlement not found');
     }
 
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
     if (!allowedOrgUnits.includes(settlement.orgUnitId)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
     }
@@ -678,7 +687,7 @@ router.get('/settlements/:id', authRequired, async (req: AuthRequest, res: Respo
       return fail(res, 404, 'NOT_FOUND', 'Settlement not found');
     }
 
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
     if (!allowedOrgUnits.includes(settlement.orgUnitId)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
     }
@@ -701,7 +710,7 @@ router.get('/settlements/:id', authRequired, async (req: AuthRequest, res: Respo
 // Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
 router.post('/settlements/:id/finalize', authRequired, async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || !canAccessSettlements(req.user.role)) {
+    if (!req.user || !canManageSettlements(req.user.role)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
     }
 
@@ -715,7 +724,7 @@ router.post('/settlements/:id/finalize', authRequired, async (req: AuthRequest, 
       return fail(res, 404, 'NOT_FOUND', 'Settlement not found');
     }
 
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
     if (!allowedOrgUnits.includes(settlement.orgUnitId)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
     }
@@ -800,7 +809,7 @@ router.post('/settlements/:id/finalize', authRequired, async (req: AuthRequest, 
 // Role: SUPERADMIN, BUSINESS_PARTNER, FRANCHISE, CENTER_MANAGER
 router.post('/settlements/:id/mark-paid', authRequired, async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || !canAccessSettlements(req.user.role)) {
+    if (!req.user || !canManageSettlements(req.user.role)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
     }
 
@@ -816,7 +825,7 @@ router.post('/settlements/:id/mark-paid', authRequired, async (req: AuthRequest,
       return fail(res, 404, 'NOT_FOUND', 'Settlement not found');
     }
 
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
     if (!allowedOrgUnits.includes(settlement.orgUnitId)) {
       return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
     }

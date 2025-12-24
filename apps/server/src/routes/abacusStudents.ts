@@ -59,7 +59,7 @@ router.get('/', authRequired, async (req: AuthRequest, res: Response) => {
     const effectiveOrgUnitId = getEffectiveOrgUnitId(req.user!, queryOrgUnitId);
 
     const isTeacher = req.user!.role === 'TEACHER';
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
     const teacherScope = isTeacher ? await getTeacherScope(req.user!.id) : { studentIds: [], enrollmentIds: [] };
 
     let studentsQuery = `
@@ -140,7 +140,7 @@ router.get('/:id', authRequired, async (req: AuthRequest, res: Response) => {
     }
     
     const isTeacher = req.user!.role === 'TEACHER';
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
     const teacherScope = isTeacher ? await getTeacherScope(req.user!.id) : { studentIds: [], enrollmentIds: [] };
     
     // Build query with org unit filtering

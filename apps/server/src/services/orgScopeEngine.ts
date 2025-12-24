@@ -1,4 +1,5 @@
 import prisma from '../prismaClient';
+import { isCoordinator, isHeadCoordinator } from '../constants/roles';
 import { getRequestCache } from '../utils/requestContext';
 
 /**
@@ -63,9 +64,13 @@ export async function enforceOrgScope(userOrgUnitId: number, targetOrgUnitId: nu
  * @param userOrgUnitId The user's org unit ID
  * @returns Array of allowed org unit IDs
  */
-export async function getAllowedOrgUnitsForUser(userRole: string, userOrgUnitId: number | null): Promise<number[]> {
+export async function getAllowedOrgUnitsForUser(
+  userRole: string,
+  userOrgUnitId: number | null,
+  userId?: number | null,
+): Promise<number[]> {
   const cache = getRequestCache();
-  const cacheKey = `allowed:${userRole}:${userOrgUnitId ?? 'none'}`;
+  const cacheKey = `allowed:${userRole}:${userOrgUnitId ?? 'none'}:${userId ?? 'none'}`;
   if (cache?.has(cacheKey)) {
     return cache.get(cacheKey) as number[];
   }
@@ -81,6 +86,25 @@ export async function getAllowedOrgUnitsForUser(userRole: string, userOrgUnitId:
     return result;
   }
   
+  if ((isHeadCoordinator(userRole) || isCoordinator(userRole)) && userId) {
+    const assignments = await prisma.staffOrgUnitAssignment.findMany({
+      where: {
+        userId,
+        roleType: isHeadCoordinator(userRole) ? 'HEAD_COORDINATOR' : 'COORDINATOR',
+      },
+      select: { orgUnitId: true },
+    });
+    const assignedIds = assignments.map((row) => row.orgUnitId);
+    if (assignedIds.length > 0) {
+      if (userOrgUnitId) {
+        assignedIds.push(userOrgUnitId);
+      }
+      const unique = Array.from(new Set(assignedIds));
+      cache?.set(cacheKey, unique);
+      return unique;
+    }
+  }
+
   // For other roles, get descendant org units if user has an org unit
   if (userOrgUnitId) {
     const result = await getDescendantOrgUnits(userOrgUnitId);

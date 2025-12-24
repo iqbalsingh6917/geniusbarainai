@@ -20,6 +20,7 @@ const makeToken = (user: { id: number; role: string; orgUnitId?: number | null }
 };
 
 async function resetDb() {
+  await prisma.staffOrgUnitAssignment.deleteMany({});
   await prisma.settlement.deleteMany({});
   await prisma.paymentTransaction.deleteMany({});
   await prisma.studentFeeRecord.deleteMany({});
@@ -242,6 +243,62 @@ describe('Settlements (draft)', () => {
     expect(data.total).toBe(1);
     expect(data.items.length).toBe(1);
     expect(data.items[0].orgUnitId).toBe(center1.id);
+  });
+
+  it('allows head coordinator to list settlements within assigned centers', async () => {
+    const saRoot = await prisma.orgUnit.create({ data: { code: 'SA_ROOT', name: 'SA Root', type: 'SUPERADMIN_ROOT' } });
+    const center = await prisma.orgUnit.create({ 
+      data: { code: 'CE1', name: 'Center', type: 'CENTER', parentId: saRoot.id } 
+    });
+    const headCoordinator = await prisma.user.create({
+      data: { username: 'hc-user', passwordHash: 'x', role: 'HEAD_COORDINATOR', orgUnitId: center.id },
+    });
+    await prisma.staffOrgUnitAssignment.create({
+      data: { userId: headCoordinator.id, orgUnitId: center.id, roleType: 'HEAD_COORDINATOR' },
+    });
+    const token = makeToken({ id: headCoordinator.id, role: headCoordinator.role, orgUnitId: center.id });
+
+    await prisma.settlement.create({
+      data: {
+        orgUnitId: center.id,
+        periodStart: new Date('2025-03-01T00:00:00.000Z'),
+        periodEnd: new Date('2025-03-31T23:59:59.999Z'),
+        grossCollected: 1000,
+        netPayable: 1000,
+        revenueSharePercent: 10,
+        status: 'DRAFT',
+      },
+    });
+
+    const res = await request(app)
+      .get('/api/finance/settlements')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBe(1);
+    expect(res.body.data[0].orgUnitId).toBe(center.id);
+  });
+
+  it('blocks coordinator from settlements list', async () => {
+    const saRoot = await prisma.orgUnit.create({ data: { code: 'SA_ROOT', name: 'SA Root', type: 'SUPERADMIN_ROOT' } });
+    const center = await prisma.orgUnit.create({ 
+      data: { code: 'CE1', name: 'Center', type: 'CENTER', parentId: saRoot.id } 
+    });
+    const coordinator = await prisma.user.create({
+      data: { username: 'co-user', passwordHash: 'x', role: 'COORDINATOR', orgUnitId: center.id },
+    });
+    await prisma.staffOrgUnitAssignment.create({
+      data: { userId: coordinator.id, orgUnitId: center.id, roleType: 'COORDINATOR' },
+    });
+    const token = makeToken({ id: coordinator.id, role: coordinator.role, orgUnitId: coordinator.orgUnitId });
+
+    const res = await request(app)
+      .get('/api/finance/settlements')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(403);
+
+    expect(res.body.error).toBe('Forbidden: missing permission canViewPayments');
   });
 
   it('filters settlements by payment status', async () => {

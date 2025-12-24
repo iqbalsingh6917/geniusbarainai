@@ -44,7 +44,7 @@ const teacherOnly = (req: AuthRequest, res: Response, next: Function) => {
 router.get('/students', authRequired, teacherOnly, async (req: AuthRequest, res: Response) => {
   try {
     // Get allowed org units for the teacher (their center)
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
     
     let studentsQuery = `
       SELECT 
@@ -109,7 +109,7 @@ router.get('/students', authRequired, teacherOnly, async (req: AuthRequest, res:
 router.get('/enrollments', authRequired, teacherOnly, async (req: AuthRequest, res: Response) => {
   try {
     // Get allowed org units for the teacher (their center)
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
     
     let enrollmentsQuery = `
       SELECT 
@@ -187,7 +187,7 @@ router.put('/enrollments/:id/progress', authRequired, teacherOnly, requireProgre
     const validatedData = updateProgressSchema.parse(req.body);
     
     // Check if enrollment exists and belongs to teacher's org unit
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
     
     let enrollmentQuery = `
       SELECT e.* 
@@ -264,7 +264,7 @@ router.post('/assessments', authRequired, teacherOnly, requireAssessmentCreate, 
     const validatedData = addAssessmentSchema.parse(req.body);
     
     // Check if enrollment exists and belongs to teacher's org unit
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
     
     let enrollmentQuery = `
       SELECT e.* 
@@ -345,7 +345,7 @@ router.get('/assessments/:enrollmentId', authRequired, teacherOnly, async (req: 
     }
     
     // Check if enrollment exists and belongs to teacher's org unit
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
     
     let enrollmentQuery = `
       SELECT e.* 

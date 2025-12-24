@@ -4,7 +4,16 @@ import { z } from 'zod';
 export const createUserSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(8),
-  role: z.enum(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'ADMISSIONS', 'TEACHER']),
+  role: z.enum([
+    'SUPERADMIN',
+    'BUSINESS_PARTNER',
+    'FRANCHISE',
+    'CENTER_MANAGER',
+    'HEAD_COORDINATOR',
+    'COORDINATOR',
+    'ADMISSIONS',
+    'TEACHER',
+  ]),
   orgUnitId: z.number().optional()
 });
 
@@ -12,7 +21,16 @@ export const createUserSchema = z.object({
 export const updateUserSchema = z.object({
   username: z.string().min(1).optional(),
   password: z.string().min(8).optional(),
-  role: z.enum(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'ADMISSIONS', 'TEACHER']).optional(),
+  role: z.enum([
+    'SUPERADMIN',
+    'BUSINESS_PARTNER',
+    'FRANCHISE',
+    'CENTER_MANAGER',
+    'HEAD_COORDINATOR',
+    'COORDINATOR',
+    'ADMISSIONS',
+    'TEACHER',
+  ]).optional(),
   orgUnitId: z.number().optional(),
   isActive: z.boolean().optional()
 });

@@ -4,6 +4,8 @@ import {
   isSuperadmin,
   isCenterManager,
   isAdmissions,
+  isHeadCoordinator,
+  isCoordinator,
   isTeacher,
   isStudent,
 } from '../constants/roles';
@@ -53,13 +55,16 @@ export async function buildStudentDashboardData(
   const allowedOrgUnits =
     isSuperadmin(ctx.role) || isStudent(ctx.role)
       ? []
-      : await getAllowedOrgUnitsForUser(ctx.role, ctx.orgUnitId || null);
+      : await getAllowedOrgUnitsForUser(ctx.role, ctx.orgUnitId || null, ctx.userId);
 
   let hasAccess = false;
 
   if (isSuperadmin(ctx.role)) {
     hasAccess = true;
   } else if (isCenterManager(ctx.role) || isAdmissions(ctx.role)) {
+    hasAccess =
+      !!student.orgUnitId && allowedOrgUnits.includes(student.orgUnitId);
+  } else if (isHeadCoordinator(ctx.role) || isCoordinator(ctx.role)) {
     hasAccess =
       !!student.orgUnitId && allowedOrgUnits.includes(student.orgUnitId);
   } else if (isTeacher(ctx.role)) {

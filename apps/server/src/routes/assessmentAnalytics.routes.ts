@@ -147,7 +147,7 @@ router.get(
   requireRole(['TEACHER']),
   async (req, res) => {
     try {
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
       const scope = await getTeacherScope(req.user!.id);
       const where = buildScopedWhere(scope, allowedOrgUnits);
 

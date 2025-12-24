@@ -109,13 +109,17 @@ const computeSummary = async (orgUnitIds: number[]) => {
 const handler = (role: RoleScope, auditAction: string) => async (req: any, res: any) => {
   try {
     const orgUnitId = req.user?.orgUnitId;
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(role, orgUnitId ?? undefined);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(
+      req.user.role,
+      orgUnitId ?? null,
+      req.user.id,
+    );
     const summary = await computeSummary(allowedOrgUnits);
 
     await logAudit(req, {
       action: auditAction,
       entityType: 'OrgDashboard',
-      meta: { role, orgUnitId, orgUnitCount: allowedOrgUnits.length },
+      meta: { role: req.user.role, orgUnitId, orgUnitCount: allowedOrgUnits.length },
     });
 
     ok(res, summary);

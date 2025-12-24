@@ -28,6 +28,8 @@ function printCheatSheet() {
     ['Business Partner', 'BP001', 'Test@12345'],
     ['Franchise', 'FR001', 'Test@12345'],
     ['Center Manager', 'CE001', 'Test@12345'],
+    ['Head Coordinator', 'HC001', 'Test@12345'],
+    ['Coordinator', 'CO001', 'Test@12345'],
     ['Admissions', 'AD001', 'Test@12345'],
     ['Teacher', 'TEA001', 'Test@12345'],
     ['Student', 'STU001', 'Test@12345'],

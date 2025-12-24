@@ -12,6 +12,9 @@ const daysAgoISO = (days: number) => {
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
 };
+const canAccessReports = (role?: string) =>
+  ['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'HEAD_COORDINATOR', 'COORDINATOR', 'ADMISSIONS']
+    .includes(role ?? '');
 
 const SuperadminReports: React.FC = () => {
   const { user } = useAuth();
@@ -31,7 +34,7 @@ const SuperadminReports: React.FC = () => {
   const [timeseries, setTimeseries] = useState<{ date: string; value: number }[]>([]);
 
   useEffect(() => {
-    if (!user || user.role !== 'SUPERADMIN') return;
+    if (!user || !canAccessReports(user.role)) return;
     loadCourses();
     loadReports();
   }, []);

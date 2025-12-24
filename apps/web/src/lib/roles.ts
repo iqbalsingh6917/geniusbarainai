@@ -25,6 +25,14 @@ export const isCenterManager = (user: User | null): boolean => {
   return user?.role === 'CENTER_MANAGER';
 };
 
+export const isHeadCoordinator = (user: User | null): boolean => {
+  return user?.role === 'HEAD_COORDINATOR';
+};
+
+export const isCoordinator = (user: User | null): boolean => {
+  return user?.role === 'COORDINATOR';
+};
+
 export const isAdmissions = (user: User | null): boolean => {
   return user?.role === 'ADMISSIONS';
 };
@@ -85,6 +93,36 @@ export const FRONTEND_PERMISSIONS = {
     'abacus.enrollment.update_center': false,
   },
   CENTER_MANAGER: {
+    showAbacusCourseStudio: false,
+    showAbacusCurriculumBuilder: false,
+    showAbacusStudentsPage: true,
+    showAbacusEnrollmentsPage: true,
+    showTeacherDashboard: false,
+    showOrgManagement: false,
+    canCreateEditStudents: true,
+    canCreateEditEnrollments: true,
+    canUpdateProgress: true,
+    canAddAssessments: true,
+    'abacus.enrollment.view_center': true,
+    'abacus.enrollment.create_center': true,
+    'abacus.enrollment.update_center': true,
+  },
+  HEAD_COORDINATOR: {
+    showAbacusCourseStudio: false,
+    showAbacusCurriculumBuilder: false,
+    showAbacusStudentsPage: true,
+    showAbacusEnrollmentsPage: true,
+    showTeacherDashboard: false,
+    showOrgManagement: false,
+    canCreateEditStudents: false,
+    canCreateEditEnrollments: false,
+    canUpdateProgress: false,
+    canAddAssessments: false,
+    'abacus.enrollment.view_center': true,
+    'abacus.enrollment.create_center': false,
+    'abacus.enrollment.update_center': false,
+  },
+  COORDINATOR: {
     showAbacusCourseStudio: false,
     showAbacusCurriculumBuilder: false,
     showAbacusStudentsPage: true,

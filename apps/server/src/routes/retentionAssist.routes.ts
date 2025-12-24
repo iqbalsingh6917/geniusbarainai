@@ -63,7 +63,14 @@ router.get(
 router.get(
   '/center/assist/signals',
   requireAuth,
-  requireRole(['CENTER_MANAGER', 'FRANCHISE', 'BUSINESS_PARTNER', 'SUPERADMIN']),
+  requireRole([
+    'CENTER_MANAGER',
+    'HEAD_COORDINATOR',
+    'COORDINATOR',
+    'FRANCHISE',
+    'BUSINESS_PARTNER',
+    'SUPERADMIN',
+  ]),
   async (req: AuthRequest, res: Response) => {
     try {
       const parsed = listSchema.safeParse(req.query);
@@ -75,7 +82,11 @@ router.get(
       const limit = parsed.data.limit ?? 20;
       const offset = parsed.data.offset ?? 0;
 
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId ?? null);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(
+        req.user!.role,
+        req.user!.orgUnitId ?? null,
+        req.user!.id,
+      );
       if (!allowedOrgUnits.length) {
         return ok(res, { items: [], total: 0, limit, offset, summary: { totalSignals: 0, bySeverity: { INFO: 0, WARN: 0, CRITICAL: 0 }, byCode: {} } });
       }

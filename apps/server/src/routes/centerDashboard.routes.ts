@@ -10,7 +10,7 @@ const router = Router();
 router.get(
   '/dashboard/center/overview',
   requireAuth,
-  requireRole(['CENTER_MANAGER']),
+  requireRole(['CENTER_MANAGER', 'COORDINATOR', 'HEAD_COORDINATOR']),
   async (req, res, next) => {
     try {
       const currentUser = (req as any).user;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import Skeleton from '../components/ui/Skeleton';
@@ -11,6 +11,8 @@ import { fetchCenterLeadSummary } from '../api/centerLeadsClient';
 import { formatCurrency, formatPercent } from '../utils/formatters';
 import { fetchCenterAssistSignals, RetentionSignal, RetentionSignalsResponse } from '../api/retentionAssistClient';
 import { fetchOpsAnomalySummary, OpsAnomalySummary } from '../api/opsAnomaliesClient';
+import { useAuth } from '../contexts/AuthContext';
+import { isCoordinator, isHeadCoordinator } from '../lib/roles';
 
 type StudentRow = {
   enrollmentId: number;
@@ -29,6 +31,7 @@ type CenterOverviewResponse = {
 
 const CenterDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [orgSummary, setOrgSummary] = useState<OrgDashboardSummary | null>(null);
   const [leadSummary, setLeadSummary] = useState<any>(null);
@@ -42,14 +45,17 @@ const CenterDashboard: React.FC = () => {
   const [assistLoading, setAssistLoading] = useState(false);
   const [assistError, setAssistError] = useState<string | null>(null);
 
+  const canViewLeads = useMemo(() => !isHeadCoordinator(user), [user]);
+  const leadsBasePath = useMemo(() => (isCoordinator(user) ? '/coordinator/leads' : '/center/leads'), [user]);
+
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
+        const baseRequests = [apiClient.get('/api/dashboard/center/overview'), fetchCenterDashboard()];
         const [data, summary, leads] = await Promise.all([
-          apiClient.get('/api/dashboard/center/overview'),
-          fetchCenterDashboard(),
-          fetchCenterLeadSummary(),
+          ...baseRequests,
+          canViewLeads ? fetchCenterLeadSummary() : Promise.resolve(null),
         ]);
         const payload: CenterOverviewResponse = (data as any)?.data ?? data;
         setStudents(payload?.students || []);
@@ -64,7 +70,7 @@ const CenterDashboard: React.FC = () => {
       }
     };
     load();
-  }, []);
+  }, [canViewLeads]);
 
   useEffect(() => {
     let isMounted = true;
@@ -115,8 +121,9 @@ const CenterDashboard: React.FC = () => {
   }, []);
 
   const goToLeads = (stage?: string) => {
+    if (!canViewLeads) return;
     const query = stage ? `?stage=${stage}` : '';
-    navigate(`/center/leads${query}`);
+    navigate(`${leadsBasePath}${query}`);
   };
 
   const statusBadge = (progress: number) => {
@@ -148,7 +155,7 @@ const CenterDashboard: React.FC = () => {
         </div>
       )}
 
-      {leadSummary && (
+      {canViewLeads && leadSummary && (
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold">Lead Funnel</h2>

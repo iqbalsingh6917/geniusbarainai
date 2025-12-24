@@ -2,7 +2,16 @@ import { Router, Response, NextFunction } from 'express';
 import { prisma } from '@lms/db';
 import { authRequired, AuthRequest } from '../middleware/auth';
 import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
-import { isSuperadmin, isBusinessPartner, isFranchise, isCenterManager, isAdmissions, isTeacher } from '../constants/roles';
+import {
+  isSuperadmin,
+  isBusinessPartner,
+  isFranchise,
+  isCenterManager,
+  isAdmissions,
+  isHeadCoordinator,
+  isCoordinator,
+  isTeacher,
+} from '../constants/roles';
 import { createObjectCsvWriter as createCsvWriter } from 'csv-writer';
 import PDFDocument from 'pdfkit';
 import stream from 'stream';
@@ -140,7 +149,7 @@ router.get('/students', authRequired, async (req: AuthRequest, res: Response) =>
         !isBusinessPartner(req.user.role) && 
         !isFranchise(req.user.role) && 
         !isCenterManager(req.user.role) && 
-        !isAdmissions(req.user.role))) {
+        !isAdmissions(req.user.role) && !isHeadCoordinator(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
@@ -160,7 +169,7 @@ router.get('/students', authRequired, async (req: AuthRequest, res: Response) =>
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -266,7 +275,7 @@ router.get('/enrollments', authRequired, async (req: AuthRequest, res: Response)
         !isBusinessPartner(req.user.role) && 
         !isFranchise(req.user.role) && 
         !isCenterManager(req.user.role) && 
-        !isAdmissions(req.user.role))) {
+        !isAdmissions(req.user.role) && !isHeadCoordinator(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
@@ -286,7 +295,7 @@ router.get('/enrollments', authRequired, async (req: AuthRequest, res: Response)
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -404,7 +413,7 @@ router.get('/attendance', authRequired, async (req: AuthRequest, res: Response) 
         !isBusinessPartner(req.user.role) && 
         !isFranchise(req.user.role) && 
         !isCenterManager(req.user.role) && 
-        !isAdmissions(req.user.role))) {
+        !isAdmissions(req.user.role) && !isHeadCoordinator(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
@@ -414,7 +423,7 @@ router.get('/attendance', authRequired, async (req: AuthRequest, res: Response) 
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -517,7 +526,7 @@ router.get('/finance', authRequired, async (req: AuthRequest, res: Response) => 
         !isBusinessPartner(req.user.role) && 
         !isFranchise(req.user.role) && 
         !isCenterManager(req.user.role) && 
-        !isAdmissions(req.user.role))) {
+        !isAdmissions(req.user.role) && !isHeadCoordinator(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
@@ -537,7 +546,7 @@ router.get('/finance', authRequired, async (req: AuthRequest, res: Response) => 
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -638,7 +647,7 @@ router.get('/finance/advanced', authRequired, async (req: AuthRequest, res: Resp
         !isBusinessPartner(req.user.role) &&
         !isFranchise(req.user.role) &&
         !isCenterManager(req.user.role) &&
-        !isAdmissions(req.user.role))) {
+        !isAdmissions(req.user.role) && !isHeadCoordinator(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
@@ -650,7 +659,7 @@ router.get('/finance/advanced', authRequired, async (req: AuthRequest, res: Resp
       return fail(res, 400, 'VALIDATION_ERROR', 'Invalid toDate format. Use YYYY-MM-DD.');
     }
 
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     let targetOrgUnits = allowedOrgUnits;
     if (orgUnitId) {
@@ -927,7 +936,7 @@ router.get('/commissions/summary', authRequired, async (req: AuthRequest, res: R
         !isBusinessPartner(req.user.role) &&
         !isFranchise(req.user.role) &&
         !isCenterManager(req.user.role) &&
-        !isAdmissions(req.user.role))) {
+        !isAdmissions(req.user.role) && !isHeadCoordinator(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
@@ -939,7 +948,7 @@ router.get('/commissions/summary', authRequired, async (req: AuthRequest, res: R
       return fail(res, 400, 'VALIDATION_ERROR', 'Invalid toDate format. Use YYYY-MM-DD.');
     }
 
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     let targetOrgUnits = allowedOrgUnits;
     if (orgUnitId) {
@@ -1050,7 +1059,7 @@ router.get('/commissions/rollups', authRequired, async (req: AuthRequest, res: R
       return fail(res, 400, 'VALIDATION_ERROR', 'Invalid toDate format. Use YYYY-MM-DD.');
     }
 
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     let targetOrgUnits = allowedOrgUnits;
     if (orgUnitId) {
@@ -1195,7 +1204,7 @@ router.get('/assessments', authRequired, async (req: AuthRequest, res: Response)
         !isBusinessPartner(req.user.role) && 
         !isFranchise(req.user.role) && 
         !isCenterManager(req.user.role) && 
-        !isAdmissions(req.user.role))) {
+        !isAdmissions(req.user.role) && !isHeadCoordinator(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
@@ -1209,7 +1218,7 @@ router.get('/assessments', authRequired, async (req: AuthRequest, res: Response)
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -1344,7 +1353,7 @@ router.get('/students.csv', authRequired, reportAccessRequired, async (req: Auth
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -1457,7 +1466,7 @@ router.get('/enrollments.csv', authRequired, reportAccessRequired, async (req: A
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -1588,7 +1597,7 @@ router.get('/students.pdf', authRequired, reportAccessRequired, async (req: Auth
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -1716,7 +1725,7 @@ router.get('/enrollments.pdf', authRequired, reportAccessRequired, async (req: A
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -1854,7 +1863,7 @@ router.get('/attendance.csv', authRequired, reportAccessRequired, async (req: Au
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -1967,7 +1976,7 @@ router.get('/finance.csv', authRequired, reportAccessRequired, async (req: AuthR
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -2069,7 +2078,7 @@ router.get('/assessments.csv', authRequired, reportAccessRequired, async (req: A
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -2211,7 +2220,7 @@ router.get('/students.pdf', authRequired, reportAccessRequired, async (req: Auth
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -2340,7 +2349,7 @@ router.get('/enrollments.pdf', authRequired, reportAccessRequired, async (req: A
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -2479,7 +2488,7 @@ router.get('/attendance.pdf', authRequired, reportAccessRequired, async (req: Au
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -2612,7 +2621,7 @@ router.get('/finance.pdf', authRequired, reportAccessRequired, async (req: AuthR
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -2731,7 +2740,7 @@ router.get('/assessments.pdf', authRequired, reportAccessRequired, async (req: A
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -2896,7 +2905,7 @@ router.get('/students.pdf', authRequired, reportAccessRequired, async (req: Auth
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -3045,7 +3054,7 @@ router.get('/enrollments.pdf', authRequired, reportAccessRequired, async (req: A
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -3214,7 +3223,7 @@ router.get('/attendance.pdf', authRequired, reportAccessRequired, async (req: Au
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -3368,7 +3377,7 @@ router.get('/finance.pdf', authRequired, reportAccessRequired, async (req: AuthR
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;
@@ -3501,7 +3510,7 @@ router.get('/assessments.pdf', authRequired, reportAccessRequired, async (req: A
     }
 
     // Get allowed org units for the user
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
 
     // If orgUnitId is provided, check if user can access it
     let targetOrgUnits = allowedOrgUnits;

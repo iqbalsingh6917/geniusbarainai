@@ -203,7 +203,7 @@ const SuperadminUsers: React.FC = () => {
       return orgUnit.type === 'BUSINESS_PARTNER';
     } else if (formData.role === 'FRANCHISE') {
       return orgUnit.type === 'FRANCHISE';
-    } else if (['CENTER_MANAGER', 'ADMISSIONS', 'TEACHER'].includes(formData.role)) {
+    } else if (['CENTER_MANAGER', 'HEAD_COORDINATOR', 'COORDINATOR', 'ADMISSIONS', 'TEACHER'].includes(formData.role)) {
       return orgUnit.type === 'CENTER';
     }
     return true;
@@ -257,9 +257,12 @@ const SuperadminUsers: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
             >
               <option value="">All Roles</option>
+              <option value="SUPERADMIN">Superadmin</option>
               <option value="BUSINESS_PARTNER">Business Partner</option>
               <option value="FRANCHISE">Franchise</option>
               <option value="CENTER_MANAGER">Center Manager</option>
+              <option value="HEAD_COORDINATOR">Head Coordinator</option>
+              <option value="COORDINATOR">Coordinator</option>
               <option value="ADMISSIONS">Admissions</option>
               <option value="TEACHER">Teacher</option>
             </select>
@@ -415,9 +418,12 @@ const SuperadminUsers: React.FC = () => {
                   onChange={(e) => setFormData({...formData, role: e.target.value, orgUnitId: ''})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 >
+                  <option value="SUPERADMIN">Superadmin</option>
                   <option value="BUSINESS_PARTNER">Business Partner</option>
                   <option value="FRANCHISE">Franchise</option>
                   <option value="CENTER_MANAGER">Center Manager</option>
+                  <option value="HEAD_COORDINATOR">Head Coordinator</option>
+                  <option value="COORDINATOR">Coordinator</option>
                   <option value="ADMISSIONS">Admissions</option>
                   <option value="TEACHER">Teacher</option>
                 </select>

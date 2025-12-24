@@ -2,7 +2,15 @@ import { Router, Response } from 'express';
 import prisma from '../prismaClient';
 import { authRequired, superadminOnly, AuthRequest } from '../middleware/auth';
 import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
-import { isBusinessPartner, isFranchise, isCenterManager, isAdmissions, isTeacher } from '../constants/roles';
+import {
+  isBusinessPartner,
+  isCoordinator,
+  isFranchise,
+  isCenterManager,
+  isAdmissions,
+  isHeadCoordinator,
+  isTeacher,
+} from '../constants/roles';
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
 import { withQueryLabel } from '../utils/requestContext';
@@ -162,7 +170,7 @@ router.get('/business-partner', authRequired, async (req: AuthRequest, res: Resp
     
     // Get allowed org units for the BP and org unit details
     const [allowedOrgUnits, bpOrgUnit] = await Promise.all([
-      getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId),
+      getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId, req.user.id),
       getOrgUnitDetails(req.user.orgUnitId),
     ]);
     
@@ -270,7 +278,7 @@ router.get('/franchise', authRequired, async (req: AuthRequest, res: Response) =
     // Get franchise org unit details and allowed org units
     const [franchiseOrgUnit, allowedOrgUnits] = await Promise.all([
       getOrgUnitDetails(req.user.orgUnitId),
-      getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId),
+      getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId, req.user.id),
     ]);
     
     if (!franchiseOrgUnit) {
@@ -365,8 +373,14 @@ router.get('/center', authRequired, async (req: AuthRequest, res: Response) => {
     centerDashboardSchema.parse(req.query);
 
     // Check if user is CENTER_MANAGER or ADMISSIONS
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role))) {
-      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager or Admissions role required.');
+    if (
+      !req.user ||
+      (!isCenterManager(req.user.role) &&
+        !isAdmissions(req.user.role) &&
+        !isCoordinator(req.user.role) &&
+        !isHeadCoordinator(req.user.role))
+    ) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center role required.');
     }
     
     if (!req.user?.orgUnitId) {
@@ -482,6 +496,198 @@ router.get('/center', authRequired, async (req: AuthRequest, res: Response) => {
       return fail(res, 400, 'VALIDATION_ERROR', 'Validation error', error.errors);
     }
     console.error('Error fetching center dashboard:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/dashboard/coordinator/overview
+// Role: COORDINATOR only
+router.get('/coordinator/overview', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    // Check if user is COORDINATOR
+    if (!req.user || !isCoordinator(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Coordinator role required.');
+    }
+
+    // Get allowed org units for the coordinator
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(
+      req.user.role, 
+      req.user.orgUnitId ?? null, 
+      req.user.id
+    );
+
+    if (allowedOrgUnits.length === 0) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'User not associated with any organization unit');
+    }
+
+    // Get students and enrollments data for assigned centers
+    const query = `
+      SELECT 
+        e."id" as "enrollmentId",
+        s."firstName" || ' ' || COALESCE(s."lastName", '') as "studentName",
+        c."name" as "courseTitle",
+        c."code" as "courseCode",
+        CASE 
+          WHEN total_modules > 0 THEN ROUND((completed_modules * 100.0 / total_modules), 2)
+          ELSE 0
+        END as "progressPercent",
+        completed_modules as "completedModules",
+        completed_worksheets as "completedWorksheets",
+        completed_exams as "completedExams"
+      FROM "AbacusEnrollment" e
+      JOIN "Student" s ON e."studentId" = s."id"
+      JOIN "AbacusCourse" c ON e."courseId" = c."id"
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as total_modules
+        FROM "AbacusModule" m
+        WHERE m."courseId" = c."id"
+      ) tm ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as completed_modules
+        FROM "AbacusModuleCompletion" mc
+        WHERE mc."studentId" = s."id" AND mc."moduleId" IN (
+          SELECT m."id" FROM "AbacusModule" m WHERE m."courseId" = c."id"
+        )
+      ) cm ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as completed_worksheets
+        FROM "StudentWorksheetAttempt" swa
+        WHERE swa."studentId" = s."id" AND swa."status" = 'COMPLETED'
+      ) cws ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as completed_exams
+        FROM "ExamAttempt" ea
+        WHERE ea."studentId" = s."id" AND ea."status" = 'COMPLETED'
+      ) ces ON TRUE
+      WHERE s."orgUnitId" = ANY($1) AND e."status" != 'DROPPED'
+      ORDER BY s."firstName", s."lastName"
+      LIMIT 20
+    `;
+
+    const students: any = await prisma.$queryRawUnsafe(query, allowedOrgUnits);
+
+    // Convert BigInt to Number for all count fields
+    const formattedStudents = students.map((student: any) => ({
+      enrollmentId: student.enrollmentid ? parseInt(student.enrollmentid.toString()) : 0,
+      studentName: student.studentname || '—',
+      courseTitle: student.coursetitle || '—',
+      courseCode: student.coursecode || '—',
+      progressPercent: student.progresspercent ? parseFloat(student.progresspercent.toString()) : 0,
+      completedModules: student.completedmodules ? parseInt(student.completedmodules.toString()) : 0,
+      completedWorksheets: student.completedworksheets ? parseInt(student.completedworksheets.toString()) : 0,
+      completedExams: student.completedexams ? parseInt(student.completedexams.toString()) : 0,
+    }));
+
+    // Log audit
+    await logAudit(req, {
+      action: 'DASHBOARD_COORDINATOR_VIEWED',
+      entityType: 'Dashboard',
+      meta: { 
+        dashboardType: 'coordinator',
+        orgUnitId: req.user?.orgUnitId,
+        userRole: req.user?.role
+      }
+    });
+
+    ok(res, { students: formattedStudents });
+  } catch (error) {
+    console.error('Error fetching coordinator dashboard:', error);
+    fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
+  }
+});
+
+// GET /api/dashboard/head-coordinator/overview
+// Role: HEAD_COORDINATOR only
+router.get('/head-coordinator/overview', authRequired, async (req: AuthRequest, res: Response) => {
+  try {
+    // Check if user is HEAD_COORDINATOR
+    if (!req.user || !isHeadCoordinator(req.user.role)) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Head Coordinator role required.');
+    }
+
+    // Get allowed org units for the head coordinator
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(
+      req.user.role, 
+      req.user.orgUnitId ?? null, 
+      req.user.id
+    );
+
+    if (allowedOrgUnits.length === 0) {
+      return fail(res, 400, 'VALIDATION_ERROR', 'User not associated with any organization unit');
+    }
+
+    // Get students and enrollments data for assigned centers
+    const query = `
+      SELECT 
+        e."id" as "enrollmentId",
+        s."firstName" || ' ' || COALESCE(s."lastName", '') as "studentName",
+        c."name" as "courseTitle",
+        c."code" as "courseCode",
+        CASE 
+          WHEN total_modules > 0 THEN ROUND((completed_modules * 100.0 / total_modules), 2)
+          ELSE 0
+        END as "progressPercent",
+        completed_modules as "completedModules",
+        completed_worksheets as "completedWorksheets",
+        completed_exams as "completedExams"
+      FROM "AbacusEnrollment" e
+      JOIN "Student" s ON e."studentId" = s."id"
+      JOIN "AbacusCourse" c ON e."courseId" = c."id"
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as total_modules
+        FROM "AbacusModule" m
+        WHERE m."courseId" = c."id"
+      ) tm ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as completed_modules
+        FROM "AbacusModuleCompletion" mc
+        WHERE mc."studentId" = s."id" AND mc."moduleId" IN (
+          SELECT m."id" FROM "AbacusModule" m WHERE m."courseId" = c."id"
+        )
+      ) cm ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as completed_worksheets
+        FROM "StudentWorksheetAttempt" swa
+        WHERE swa."studentId" = s."id" AND swa."status" = 'COMPLETED'
+      ) cws ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) as completed_exams
+        FROM "ExamAttempt" ea
+        WHERE ea."studentId" = s."id" AND ea."status" = 'COMPLETED'
+      ) ces ON TRUE
+      WHERE s."orgUnitId" = ANY($1) AND e."status" != 'DROPPED'
+      ORDER BY s."firstName", s."lastName"
+      LIMIT 20
+    `;
+
+    const students: any = await prisma.$queryRawUnsafe(query, allowedOrgUnits);
+
+    // Convert BigInt to Number for all count fields
+    const formattedStudents = students.map((student: any) => ({
+      enrollmentId: student.enrollmentid ? parseInt(student.enrollmentid.toString()) : 0,
+      studentName: student.studentname || '—',
+      courseTitle: student.coursetitle || '—',
+      courseCode: student.coursecode || '—',
+      progressPercent: student.progresspercent ? parseFloat(student.progresspercent.toString()) : 0,
+      completedModules: student.completedmodules ? parseInt(student.completedmodules.toString()) : 0,
+      completedWorksheets: student.completedworksheets ? parseInt(student.completedworksheets.toString()) : 0,
+      completedExams: student.completedexams ? parseInt(student.completedexams.toString()) : 0,
+    }));
+
+    // Log audit
+    await logAudit(req, {
+      action: 'DASHBOARD_HEAD_COORDINATOR_VIEWED',
+      entityType: 'Dashboard',
+      meta: { 
+        dashboardType: 'head-coordinator',
+        orgUnitId: req.user?.orgUnitId,
+        userRole: req.user?.role
+      }
+    });
+
+    ok(res, { students: formattedStudents });
+  } catch (error) {
+    console.error('Error fetching head coordinator dashboard:', error);
     fail(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred');
   }
 });

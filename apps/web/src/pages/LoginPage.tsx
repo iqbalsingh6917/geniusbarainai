@@ -37,6 +37,12 @@ const LoginPage: React.FC = () => {
           case 'ADMISSIONS':
             navigate('/center/dashboard');
             break;
+          case 'HEAD_COORDINATOR':
+            navigate('/head-coordinator/dashboard');
+            break;
+          case 'COORDINATOR':
+            navigate('/coordinator/dashboard');
+            break;
           case 'TEACHER':
             navigate('/teacher/dashboard');
             break;
@@ -144,6 +150,8 @@ const LoginPage: React.FC = () => {
                 <p><strong>Business Partner:</strong> BP001 / Test@12345</p>
                 <p><strong>Franchise:</strong> FR001 / Test@12345</p>
                 <p><strong>Center Manager:</strong> CE001 / Test@12345</p>
+                <p><strong>Head Coordinator:</strong> HC001 / Test@12345</p>
+                <p><strong>Coordinator:</strong> CO001 / Test@12345</p>
                 <p><strong>Admissions:</strong> AD001 / Test@12345</p>
                 <p><strong>Teacher:</strong> TEA001 / Test@12345</p>
                 <p><strong>Student:</strong> STU001 / Test@12345</p>

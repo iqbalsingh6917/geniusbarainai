@@ -22,7 +22,7 @@ async function getTeacherScope(teacherUserId: number) {
 async function teacherCanAccessAttempt(user: any, attempt: any) {
   if (!user) return false;
   const { role, orgUnitId, id: userId } = user;
-  const allowedOrgUnits = await getAllowedOrgUnitsForUser(role, orgUnitId || null);
+  const allowedOrgUnits = await getAllowedOrgUnitsForUser(role, orgUnitId || null, user?.id ?? null);
   const scope = await getTeacherScope(userId);
 
   if (scope.enrollmentIds.includes(attempt.enrollmentId)) return true;
@@ -34,7 +34,7 @@ async function teacherCanAccessAttempt(user: any, attempt: any) {
 // GET /teacher/exams/attempts
 router.get('/teacher/exams/attempts', requireAuth, requireRole(['TEACHER']), async (req, res, next) => {
   try {
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId || null, req.user!.id);
     const scope = await getTeacherScope(req.user!.id);
 
     const attempts = await prisma.examAttempt.findMany({

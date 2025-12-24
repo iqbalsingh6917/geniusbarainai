@@ -4,6 +4,8 @@ export const ROLES = {
   BUSINESS_PARTNER: 'BUSINESS_PARTNER',
   FRANCHISE: 'FRANCHISE',
   CENTER_MANAGER: 'CENTER_MANAGER',
+  HEAD_COORDINATOR: 'HEAD_COORDINATOR',
+  COORDINATOR: 'COORDINATOR',
   ADMISSIONS: 'ADMISSIONS',
   TEACHER: 'TEACHER',
   STUDENT: 'STUDENT',
@@ -27,6 +29,14 @@ export const isFranchise = (role: string): boolean => {
 
 export const isCenterManager = (role: string): boolean => {
   return role === ROLES.CENTER_MANAGER;
+};
+
+export const isHeadCoordinator = (role: string): boolean => {
+  return role === ROLES.HEAD_COORDINATOR;
+};
+
+export const isCoordinator = (role: string): boolean => {
+  return role === ROLES.COORDINATOR;
 };
 
 export const isAdmissions = (role: string): boolean => {

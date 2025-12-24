@@ -59,7 +59,7 @@ router.get('/attempts', authRequired, async (req: AuthRequest, res: Response) =>
       `;
       params.push(req.user.id);
     } else if (req.user.orgUnitId) {
-      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId);
+      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId, req.user.id);
       if (allowed.length === 0) {
         return ok(res, []);
       }
@@ -153,7 +153,7 @@ router.get('/attempts/history/:studentId', authRequired, async (req: AuthRequest
         return fail(res, 403, 'ACCESS_DENIED', 'Teacher not assigned to student');
       }
     } else if (isCenterManager(req.user.role) && req.user.orgUnitId) {
-      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId);
+      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId, req.user.id);
       const student: any = await prisma.$queryRaw`
         SELECT "orgUnitId" FROM "Student" WHERE "id" = ${studentId}
       `;

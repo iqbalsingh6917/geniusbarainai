@@ -76,7 +76,15 @@ router.post('/', authRequired, superadminOnly, async (req: AuthRequest, res: Res
     const { username, password, role, orgUnitId } = validatedData;
 
     // Validate role
-    const validRoles = ['BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'ADMISSIONS', 'TEACHER'];
+    const validRoles = [
+      'BUSINESS_PARTNER',
+      'FRANCHISE',
+      'CENTER_MANAGER',
+      'HEAD_COORDINATOR',
+      'COORDINATOR',
+      'ADMISSIONS',
+      'TEACHER'
+    ];
     if (!validRoles.includes(role) && role !== 'SUPERADMIN') {
       return fail(res, 400, 'VALIDATION_ERROR', 'Invalid role');
     }
@@ -104,7 +112,7 @@ router.post('/', authRequired, superadminOnly, async (req: AuthRequest, res: Res
       // Validate role-org unit type compatibility
       if ((role === 'BUSINESS_PARTNER' && orgUnit.type !== 'BUSINESS_PARTNER') ||
           (role === 'FRANCHISE' && orgUnit.type !== 'FRANCHISE') ||
-          ((role === 'CENTER_MANAGER' || role === 'ADMISSIONS' || role === 'TEACHER') && orgUnit.type !== 'CENTER')) {
+          ((role === 'CENTER_MANAGER' || role === 'HEAD_COORDINATOR' || role === 'COORDINATOR' || role === 'ADMISSIONS' || role === 'TEACHER') && orgUnit.type !== 'CENTER')) {
         return fail(res, 400, 'VALIDATION_ERROR', 'Role is not compatible with org unit type');
       }
     }
@@ -170,7 +178,15 @@ router.put('/:id', authRequired, superadminOnly, async (req: AuthRequest, res: R
     // Update role if provided
     if (role) {
       // Validate role
-      const validRoles = ['BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'ADMISSIONS', 'TEACHER'];
+      const validRoles = [
+        'BUSINESS_PARTNER',
+        'FRANCHISE',
+        'CENTER_MANAGER',
+        'HEAD_COORDINATOR',
+        'COORDINATOR',
+        'ADMISSIONS',
+        'TEACHER'
+      ];
       if (!validRoles.includes(role) && role !== 'SUPERADMIN') {
         return fail(res, 400, 'VALIDATION_ERROR', 'Invalid role');
       }
@@ -198,7 +214,7 @@ router.put('/:id', authRequired, superadminOnly, async (req: AuthRequest, res: R
         const userRole = role || existingUser.role;
         if ((userRole === 'BUSINESS_PARTNER' && orgUnit.type !== 'BUSINESS_PARTNER') ||
             (userRole === 'FRANCHISE' && orgUnit.type !== 'FRANCHISE') ||
-            ((userRole === 'CENTER_MANAGER' || userRole === 'ADMISSIONS' || userRole === 'TEACHER') && orgUnit.type !== 'CENTER')) {
+            ((userRole === 'CENTER_MANAGER' || userRole === 'HEAD_COORDINATOR' || userRole === 'COORDINATOR' || userRole === 'ADMISSIONS' || userRole === 'TEACHER') && orgUnit.type !== 'CENTER')) {
           return fail(res, 400, 'VALIDATION_ERROR', 'Role is not compatible with org unit type');
         }
         updateData.orgUnitId = orgUnitId;

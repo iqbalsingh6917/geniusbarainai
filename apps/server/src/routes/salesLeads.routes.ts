@@ -534,17 +534,17 @@ async function validateAssignee(assignedToUserId: number | null | undefined, all
   return { value: user.id };
 }
 
-const summaryHandler = (role: 'BUSINESS_PARTNER' | 'FRANCHISE' | 'CENTER_MANAGER', auditAction: string) =>
+const summaryHandler = (auditAction: string) =>
   async (req: any, res: any) => {
     try {
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
       const summary = await getLeadSummary(allowedOrgUnits);
 
       await logAudit(req, {
         action: auditAction,
         entityType: 'Lead',
-        meta: { role, orgUnitId, allowedOrgUnitsCount: allowedOrgUnits.length },
+        meta: { role: req.user.role, orgUnitId, allowedOrgUnitsCount: allowedOrgUnits.length },
       });
 
       ok(res, summary);
@@ -558,31 +558,31 @@ router.get(
   '/bp/leads/summary',
   requireAuth,
   requireRole(['BUSINESS_PARTNER']),
-  summaryHandler('BUSINESS_PARTNER', 'LEAD_SUMMARY_VIEWED_BP'),
+  summaryHandler('LEAD_SUMMARY_VIEWED_BP'),
 );
 
 router.get(
   '/franchise/leads/summary',
   requireAuth,
   requireRole(['FRANCHISE']),
-  summaryHandler('FRANCHISE', 'LEAD_SUMMARY_VIEWED_FRANCHISE'),
+  summaryHandler('LEAD_SUMMARY_VIEWED_FRANCHISE'),
 );
 
-router.get(
-  '/center/leads/summary',
-  requireAuth,
-  requireRole(['CENTER_MANAGER']),
-  summaryHandler('CENTER_MANAGER', 'LEAD_SUMMARY_VIEWED_CENTER'),
-);
+  router.get(
+    '/center/leads/summary',
+    requireAuth,
+    requireRole(['CENTER_MANAGER', 'COORDINATOR']),
+    summaryHandler('LEAD_SUMMARY_VIEWED_CENTER'),
+  );
 
 router.get(
   '/leads/metrics/summary',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
       const orgUnitFilter = req.query.orgUnitId ? Number(req.query.orgUnitId) : undefined;
 
       if (orgUnitFilter && !allowedOrgUnits.includes(orgUnitFilter)) {
@@ -621,11 +621,11 @@ router.get(
 router.get(
   '/leads/assist/summary',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
       const { limit, offset, page, pageSize } = parsePagination(req.query);
 
       const stageResult = parseStageFilter(req.query.stage as string | undefined);
@@ -693,14 +693,14 @@ router.get(
 router.get(
   '/leads/:id/assist',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const leadId = Number(req.params.id);
       if (!leadId) return fail(res, 400, 'VALIDATION_ERROR', 'Invalid lead id');
 
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
 
       const lead = await prisma.lead.findUnique({
         where: { id: leadId },
@@ -738,11 +738,11 @@ router.get(
 router.get(
   '/leads',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
       const { limit, offset, page, pageSize } = parsePagination(req.query);
 
       const stageResult = parseStageFilter(req.query.stage as string | undefined);
@@ -801,14 +801,14 @@ router.get(
 router.get(
   '/leads/:id',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const leadId = Number(req.params.id);
       if (!leadId) return fail(res, 400, 'VALIDATION_ERROR', 'Invalid lead id');
 
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
 
       const lead = await prisma.lead.findUnique({
         where: { id: leadId },
@@ -864,7 +864,7 @@ router.get(
 router.post(
   '/leads/:id/assign',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const leadId = Number(req.params.id);
@@ -872,7 +872,7 @@ router.post(
 
       const parsed = assignmentSchema.parse(req.body);
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
 
       const existing = await prisma.lead.findUnique({ where: { id: leadId } });
       if (!existing || !(await ensureOrgAccess(allowedOrgUnits, existing.orgUnitId ?? undefined))) {
@@ -918,7 +918,7 @@ router.post(
 router.post(
   '/leads/:id/snooze',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const leadId = Number(req.params.id);
@@ -926,7 +926,7 @@ router.post(
 
       const parsed = snoozeSchema.parse(req.body);
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
 
       const existing = await prisma.lead.findUnique({ where: { id: leadId } });
       if (!existing || !(await ensureOrgAccess(allowedOrgUnits, existing.orgUnitId ?? undefined))) {
@@ -971,12 +971,12 @@ router.post(
 router.post(
   '/leads',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const parsed = leadPayloadSchema.parse(req.body);
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
       const targetOrgUnitId = parsed.orgUnitId ?? orgUnitId;
 
       if (!targetOrgUnitId || !(await ensureOrgAccess(allowedOrgUnits, targetOrgUnitId))) {
@@ -1060,7 +1060,7 @@ router.post(
 router.patch(
   '/leads/:id',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   async (req: any, res: any) => {
     try {
       const leadId = Number(req.params.id);
@@ -1068,7 +1068,7 @@ router.patch(
 
       const parsed = leadUpdateSchema.parse(req.body);
       const orgUnitId = req.user?.orgUnitId ?? undefined;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
 
       const existing = await prisma.lead.findUnique({ where: { id: leadId } });
       if (!existing || !(await ensureOrgAccess(allowedOrgUnits, existing.orgUnitId ?? undefined))) {
@@ -1173,7 +1173,7 @@ const stageTransitionHandler = async (req: any, res: any) => {
     const parsed = stageTransitionSchema.parse(req.body);
 
     const orgUnitId = req.user?.orgUnitId ?? undefined;
-    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId);
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, orgUnitId, req.user.id);
 
     const existing = await prisma.lead.findUnique({ where: { id: leadId } });
     if (!existing || !(await ensureOrgAccess(allowedOrgUnits, existing.orgUnitId ?? undefined))) {
@@ -1237,14 +1237,14 @@ const stageTransitionHandler = async (req: any, res: any) => {
 router.post(
   '/leads/:id/stage',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   stageTransitionHandler,
 );
 
 router.patch(
   '/leads/:id/stage',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER']),
+  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'COORDINATOR']),
   stageTransitionHandler,
 );
 

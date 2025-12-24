@@ -15,10 +15,12 @@ import {
 
 type FinanceSettlementDetailProps = {
   basePath?: string;
+  readOnly?: boolean;
 };
 
 const FinanceSettlementDetail: React.FC<FinanceSettlementDetailProps> = ({
   basePath = '/superadmin/finance-settlements',
+  readOnly = false,
 }) => {
   const { id } = useParams();
   const settlementId = Number(id);
@@ -180,8 +182,8 @@ const FinanceSettlementDetail: React.FC<FinanceSettlementDetailProps> = ({
     );
   }
 
-  const canFinalize = settlement.status === 'DRAFT';
-  const canMarkPaid = settlement.status === 'FINALIZED' && settlement.paymentStatus === 'UNPAID';
+  const canFinalize = !readOnly && settlement.status === 'DRAFT';
+  const canMarkPaid = !readOnly && settlement.status === 'FINALIZED' && settlement.paymentStatus === 'UNPAID';
 
   return (
     <div className="p-6 space-y-6">
@@ -199,12 +201,16 @@ const FinanceSettlementDetail: React.FC<FinanceSettlementDetailProps> = ({
           <button className="btn btn-outline btn-sm" onClick={handleExportCsv} disabled={exporting}>
             {exporting ? 'Exporting...' : 'Export CSV'}
           </button>
-          <button className="btn btn-outline btn-sm" disabled={!canFinalize || processing} onClick={handleFinalize}>
-            Finalize
-          </button>
-          <button className="btn btn-primary btn-sm" disabled={!canMarkPaid || processing} onClick={handleMarkPaid}>
-            Mark Paid
-          </button>
+          {!readOnly && (
+            <>
+              <button className="btn btn-outline btn-sm" disabled={!canFinalize || processing} onClick={handleFinalize}>
+                Finalize
+              </button>
+              <button className="btn btn-primary btn-sm" disabled={!canMarkPaid || processing} onClick={handleMarkPaid}>
+                Mark Paid
+              </button>
+            </>
+          )}
         </div>
       </div>
 

@@ -2,7 +2,15 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../prismaClient';
 import { authRequired, AuthRequest } from '../middleware/auth';
-import { isCenterManager, isAdmissions, isTeacher, isSuperadmin } from '../constants/roles';
+import {
+  isCenterManager,
+  isAdmissions,
+  isCoordinator,
+  isHeadCoordinator,
+  isTeacher,
+  isSuperadmin,
+} from '../constants/roles';
+import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
 
@@ -30,18 +38,35 @@ const RecordAttendanceSchema = z.object({
 router.get('/center', async (req: AuthRequest, res: Response) => {
   try {
     // Check if user has appropriate role
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && 
-        !isSuperadmin(req.user.role))) {
+    if (
+      !req.user ||
+      (!isCenterManager(req.user.role) &&
+        !isAdmissions(req.user.role) &&
+        !isCoordinator(req.user.role) &&
+        !isHeadCoordinator(req.user.role) &&
+        !isSuperadmin(req.user.role))
+    ) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
     // Get orgUnitId - either from query param (SUPERADMIN only) or user's orgUnitId
-    let orgUnitId: number;
-    if (isSuperadmin(req.user.role) && req.query.orgUnitId) {
+    const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId ?? null, req.user.id);
+    let orgUnitId: number | undefined;
+    if (req.query.orgUnitId) {
       orgUnitId = parseInt(req.query.orgUnitId as string);
+      if (Number.isNaN(orgUnitId)) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Invalid orgUnitId');
+      }
+      if (!isSuperadmin(req.user.role) && !allowedOrgUnits.includes(orgUnitId)) {
+        return fail(res, 403, 'ACCESS_DENIED', 'Org unit outside your scope');
+      }
     } else if (req.user.orgUnitId) {
       orgUnitId = req.user.orgUnitId;
-    } else {
+    } else if (allowedOrgUnits.length > 0) {
+      orgUnitId = allowedOrgUnits[0];
+    }
+
+    if (!orgUnitId) {
       return fail(res, 400, 'VALIDATION_ERROR', 'User not associated with an organization unit');
     }
 
@@ -278,8 +303,13 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
 router.post('/record', async (req: AuthRequest, res: Response) => {
   try {
     // Check if user has appropriate role
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && 
-        !isTeacher(req.user.role))) {
+    if (
+      !req.user ||
+      (!isCenterManager(req.user.role) &&
+        !isAdmissions(req.user.role) &&
+        !isCoordinator(req.user.role) &&
+        !isTeacher(req.user.role))
+    ) {
       return res.status(403).json({ error: 'Access denied. Insufficient permissions.' });
     }
 

@@ -490,6 +490,19 @@ async function main() {
   
   console.log(`Created/Updated CE001 org unit with id: ${ce001.id}`);
 
+  const ce002 = await prisma.orgUnit.upsert({
+    where: { code: 'CE002' },
+    update: {},
+    create: {
+      code: 'CE002',
+      name: 'Patiala Annex Center',
+      type: 'CENTER',
+      parentId: fr001.id,
+    },
+  });
+
+  console.log(`Created/Updated CE002 org unit with id: ${ce002.id}`);
+
   // Link SUPERADMIN user to SA_ROOT
   await prisma.user.update({
     where: { id: superadmin.id },
@@ -573,6 +586,45 @@ async function main() {
     },
   });
   console.log(`Created/Updated TEACHER user ${teacherUser.username}`);
+
+    const headCoordinator = await prisma.user.upsert({
+      where: { username: 'HC001' },
+      update: {
+        role: 'HEAD_COORDINATOR',
+        orgUnitId: ce001.id,
+      },
+      create: {
+        username: 'HC001',
+        passwordHash,
+        role: 'HEAD_COORDINATOR',
+        orgUnitId: ce001.id,
+      },
+    });
+  console.log(`Created/Updated HEAD_COORDINATOR user ${headCoordinator.username}`);
+
+  const coordinatorUser = await prisma.user.upsert({
+    where: { username: 'CO001' },
+    update: {
+      role: 'COORDINATOR',
+      orgUnitId: ce001.id,
+    },
+    create: {
+      username: 'CO001',
+      passwordHash,
+      role: 'COORDINATOR',
+      orgUnitId: ce001.id,
+    },
+  });
+  console.log(`Created/Updated COORDINATOR user ${coordinatorUser.username}`);
+
+  await prisma.staffOrgUnitAssignment.createMany({
+    data: [
+      { userId: headCoordinator.id, orgUnitId: ce001.id, roleType: 'HEAD_COORDINATOR' },
+      { userId: headCoordinator.id, orgUnitId: ce002.id, roleType: 'HEAD_COORDINATOR' },
+      { userId: coordinatorUser.id, orgUnitId: ce001.id, roleType: 'COORDINATOR' },
+    ],
+    skipDuplicates: true,
+  });
   
   const courseConfigs: CourseSeed[] = [
     {

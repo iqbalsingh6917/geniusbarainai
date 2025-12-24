@@ -42,6 +42,7 @@ type FinanceSettlementsProps = {
   orgUnitMode?: OrgUnitMode;
   lockedOrgUnitId?: number | null;
   orgUnitsLoader?: () => Promise<OrgUnit[]>;
+  readOnly?: boolean;
 };
 
 const PAGE_SIZE = 20;
@@ -51,6 +52,7 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
   orgUnitMode = 'select',
   lockedOrgUnitId = null,
   orgUnitsLoader = fetchOrgUnits,
+  readOnly = false,
 }) => {
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -228,6 +230,7 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
   };
 
   const handlePreview = async () => {
+    if (readOnly) return;
     if (!validateDraft()) return;
     try {
       setPreviewing(true);
@@ -252,6 +255,7 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
   };
 
   const handleCreateDraft = async () => {
+    if (readOnly) return;
     if (!validateDraft()) return;
     if (!preview) {
       showToast('Preview the settlement before creating a draft', 'warning');
@@ -442,120 +446,122 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
         </div>
       </div>
 
-      <div className="card p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Create Settlement Draft</h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div>
-            <label className="block text-xs font-semibold mb-1">Org Unit</label>
-            {orgUnitMode === 'locked' ? (
-              <input className="form-control w-full" value={lockedOrgUnitLabel} disabled />
-            ) : (
-              <select
-                className="form-control w-full"
-                value={draftForm.orgUnitId}
-                onChange={(e) => setDraftForm((prev) => ({ ...prev, orgUnitId: e.target.value }))}
-              >
-                <option value="">Select</option>
-                {orgUnits.map((unit) => (
-                  <option key={unit.id} value={unit.id}>
-                    {unit.code} - {unit.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            {draftErrors.orgUnitId && <p className="text-xs text-red-600 mt-1">{draftErrors.orgUnitId}</p>}
+      {!readOnly && (
+        <div className="card p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Create Settlement Draft</h2>
           </div>
-          <div>
-            <label className="block text-xs font-semibold mb-1">Period Start</label>
-            <input
-              type="date"
-              className="form-control w-full"
-              value={draftForm.periodStart}
-              onChange={(e) => setDraftForm((prev) => ({ ...prev, periodStart: e.target.value }))}
-            />
-            {draftErrors.periodStart && <p className="text-xs text-red-600 mt-1">{draftErrors.periodStart}</p>}
-          </div>
-          <div>
-            <label className="block text-xs font-semibold mb-1">Period End</label>
-            <input
-              type="date"
-              className="form-control w-full"
-              value={draftForm.periodEnd}
-              onChange={(e) => setDraftForm((prev) => ({ ...prev, periodEnd: e.target.value }))}
-            />
-            {draftErrors.periodEnd && <p className="text-xs text-red-600 mt-1">{draftErrors.periodEnd}</p>}
-          </div>
-          <div>
-            <label className="block text-xs font-semibold mb-1">Revenue Share %</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className="form-control w-full"
-              value={draftForm.revenueSharePercent}
-              onChange={(e) => setDraftForm((prev) => ({ ...prev, revenueSharePercent: e.target.value }))}
-              placeholder="Optional"
-            />
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button className="btn btn-outline btn-sm" onClick={handlePreview} disabled={previewing}>
-            {previewing ? 'Previewing...' : 'Preview'}
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={handleCreateDraft} disabled={creating}>
-            {creating ? 'Creating...' : 'Create Draft'}
-          </button>
-        </div>
-        {previewError && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded text-sm">
-            {previewError}
-          </div>
-        )}
-        {preview && (
-          <div className="bg-gray-50 border rounded p-3 space-y-2 text-sm">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              <div>
-                <div className="text-xs text-gray-500">Gross Collected</div>
-                <div className="font-semibold">{formatCurrency(preview.grossCollected)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Net Collected</div>
-                <div className="font-semibold">{formatCurrency(preview.netCollected)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Net Payable</div>
-                <div className="font-semibold">{formatCurrency(preview.netPayable)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Dues Raised</div>
-                <div className="font-semibold">{formatCurrency(preview.breakdown.duesRaised)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Outstanding</div>
-                <div className="font-semibold">{formatCurrency(preview.breakdown.outstandingAmount)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Collections Count</div>
-                <div className="font-semibold">{preview.breakdown.collectionsCount}</div>
-              </div>
-            </div>
-            {preview.warnings.length > 0 ? (
-              <div className="text-xs text-amber-700">
-                <div className="font-semibold mb-1">Warnings</div>
-                <ul className="list-disc list-inside space-y-1">
-                  {preview.warnings.map((warning) => (
-                    <li key={warning.code}>{warning.message}</li>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-semibold mb-1">Org Unit</label>
+              {orgUnitMode === 'locked' ? (
+                <input className="form-control w-full" value={lockedOrgUnitLabel} disabled />
+              ) : (
+                <select
+                  className="form-control w-full"
+                  value={draftForm.orgUnitId}
+                  onChange={(e) => setDraftForm((prev) => ({ ...prev, orgUnitId: e.target.value }))}
+                >
+                  <option value="">Select</option>
+                  {orgUnits.map((unit) => (
+                    <option key={unit.id} value={unit.id}>
+                      {unit.code} - {unit.name}
+                    </option>
                   ))}
-                </ul>
-              </div>
-            ) : (
-              <div className="text-xs text-gray-500">No warnings detected.</div>
-            )}
+                </select>
+              )}
+              {draftErrors.orgUnitId && <p className="text-xs text-red-600 mt-1">{draftErrors.orgUnitId}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Period Start</label>
+              <input
+                type="date"
+                className="form-control w-full"
+                value={draftForm.periodStart}
+                onChange={(e) => setDraftForm((prev) => ({ ...prev, periodStart: e.target.value }))}
+              />
+              {draftErrors.periodStart && <p className="text-xs text-red-600 mt-1">{draftErrors.periodStart}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Period End</label>
+              <input
+                type="date"
+                className="form-control w-full"
+                value={draftForm.periodEnd}
+                onChange={(e) => setDraftForm((prev) => ({ ...prev, periodEnd: e.target.value }))}
+              />
+              {draftErrors.periodEnd && <p className="text-xs text-red-600 mt-1">{draftErrors.periodEnd}</p>}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Revenue Share %</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="form-control w-full"
+                value={draftForm.revenueSharePercent}
+                onChange={(e) => setDraftForm((prev) => ({ ...prev, revenueSharePercent: e.target.value }))}
+                placeholder="Optional"
+              />
+            </div>
           </div>
-        )}
-      </div>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn btn-outline btn-sm" onClick={handlePreview} disabled={previewing}>
+              {previewing ? 'Previewing...' : 'Preview'}
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={handleCreateDraft} disabled={creating}>
+              {creating ? 'Creating...' : 'Create Draft'}
+            </button>
+          </div>
+          {previewError && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded text-sm">
+              {previewError}
+            </div>
+          )}
+          {preview && (
+            <div className="bg-gray-50 border rounded p-3 space-y-2 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <div>
+                  <div className="text-xs text-gray-500">Gross Collected</div>
+                  <div className="font-semibold">{formatCurrency(preview.grossCollected)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Net Collected</div>
+                  <div className="font-semibold">{formatCurrency(preview.netCollected)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Net Payable</div>
+                  <div className="font-semibold">{formatCurrency(preview.netPayable)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Dues Raised</div>
+                  <div className="font-semibold">{formatCurrency(preview.breakdown.duesRaised)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Outstanding</div>
+                  <div className="font-semibold">{formatCurrency(preview.breakdown.outstandingAmount)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Collections Count</div>
+                  <div className="font-semibold">{preview.breakdown.collectionsCount}</div>
+                </div>
+              </div>
+              {preview.warnings.length > 0 ? (
+                <div className="text-xs text-amber-700">
+                  <div className="font-semibold mb-1">Warnings</div>
+                  <ul className="list-disc list-inside space-y-1">
+                    {preview.warnings.map((warning) => (
+                      <li key={warning.code}>{warning.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="text-xs text-gray-500">No warnings detected.</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <StandardTable
         headers={[
@@ -613,20 +619,24 @@ const FinanceSettlements: React.FC<FinanceSettlementsProps> = ({
                   >
                     View
                   </button>
-                  <button
-                    className="btn btn-outline btn-sm"
-                    disabled={!canFinalize || isBusy}
-                    onClick={() => handleFinalize(settlement)}
-                  >
-                    Finalize
-                  </button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    disabled={!canMarkPaid || isBusy}
-                    onClick={() => handleMarkPaid(settlement)}
-                  >
-                    Mark Paid
-                  </button>
+                  {!readOnly && (
+                    <>
+                      <button
+                        className="btn btn-outline btn-sm"
+                        disabled={!canFinalize || isBusy}
+                        onClick={() => handleFinalize(settlement)}
+                      >
+                        Finalize
+                      </button>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        disabled={!canMarkPaid || isBusy}
+                        onClick={() => handleMarkPaid(settlement)}
+                      >
+                        Mark Paid
+                      </button>
+                    </>
+                  )}
                 </div>
               );
             }

@@ -61,6 +61,7 @@ import salesLeadsRoutes from './routes/salesLeads.routes';
 import opsAnomaliesRoutes from './routes/opsAnomalies.routes';
 import retentionAssistRoutes from './routes/retentionAssist.routes';
 import healthRoutes from './routes/health.routes';
+import coordinatorRoutes from './routes/coordinator.routes';
 
 export function createApp() {
   const app = express();
@@ -202,6 +203,7 @@ export function createApp() {
   app.use('/api', teacherDashboardRoutes);
   app.use('/api', centerDashboardRoutes);
   app.use('/api', healthRoutes);
+  app.use('/api/coordinator', coordinatorRoutes);
 
   // Global error handler
   app.use(errorHandler);

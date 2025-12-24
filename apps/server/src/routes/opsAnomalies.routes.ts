@@ -22,7 +22,15 @@ const byUnitSchema = z.object({
 router.get(
   '/ops/anomalies/summary',
   requireAuth,
-  requireRole(['SUPERADMIN', 'BUSINESS_PARTNER', 'FRANCHISE', 'CENTER_MANAGER', 'ADMISSIONS']),
+  requireRole([
+    'SUPERADMIN',
+    'BUSINESS_PARTNER',
+    'FRANCHISE',
+    'CENTER_MANAGER',
+    'HEAD_COORDINATOR',
+    'COORDINATOR',
+    'ADMISSIONS',
+  ]),
   async (req: AuthRequest, res: Response) => {
     try {
       const parsed = summarySchema.safeParse(req.query);
@@ -31,7 +39,11 @@ router.get(
       }
 
       const windowDays = parsed.data.window ?? OPS_ANOMALY_RULES.windowDaysDefault;
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId ?? null);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(
+        req.user!.role,
+        req.user!.orgUnitId ?? null,
+        req.user!.id,
+      );
 
       const summary = await getOpsAnomalySummary({
         orgUnitIds: allowedOrgUnits,
@@ -67,7 +79,11 @@ router.get(
       const limit = parsed.data.limit ?? 20;
       const offset = parsed.data.offset ?? 0;
 
-      const allowedOrgUnits = await getAllowedOrgUnitsForUser(req.user!.role, req.user!.orgUnitId ?? null);
+      const allowedOrgUnits = await getAllowedOrgUnitsForUser(
+        req.user!.role,
+        req.user!.orgUnitId ?? null,
+        req.user!.id,
+      );
 
       const result = await getOpsAnomaliesByUnit({
         orgUnitIds: allowedOrgUnits,

@@ -94,7 +94,7 @@ router.get('/center', authRequired, async (req: AuthRequest, res: Response) => {
     if (!req.user || !(isCenterRole(req.user.role) || isSuperadmin(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied');
     }
-    const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId || null);
+    const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId || null, req.user.id);
     const studentId = req.query.studentId ? parseInt(req.query.studentId as string) : null;
     const status = req.query.status ? String(req.query.status) : null;
     const courseCode = req.query.courseCode ? String(req.query.courseCode) : null;
@@ -260,7 +260,7 @@ router.post('/', authRequired, async (req: AuthRequest, res: Response) => {
 
     // Scope checks
     if (isCenterRole(req.user.role) && req.user.orgUnitId) {
-      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId);
+      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId, req.user.id);
       if (!allowed.includes(studentOrg)) {
         return fail(res, 403, 'ACCESS_DENIED', 'Student outside your org scope');
       }
@@ -384,7 +384,7 @@ router.put('/:id', authRequired, async (req: AuthRequest, res: Response) => {
       return fail(res, 403, 'ACCESS_DENIED', 'Insufficient role');
     }
     if (isCenterRole(role) && req.user.orgUnitId) {
-      const allowed = await getAllowedOrgUnitsForUser(role, req.user.orgUnitId);
+      const allowed = await getAllowedOrgUnitsForUser(role, req.user.orgUnitId, req.user.id);
       if (!allowed.includes(current.orgUnitId)) {
         return fail(res, 403, 'ACCESS_DENIED', 'Outside org scope');
       }
@@ -461,7 +461,7 @@ router.delete('/:id', authRequired, async (req: AuthRequest, res: Response) => {
     const current = assignment[0];
 
     if (isCenterRole(req.user.role) && req.user.orgUnitId) {
-      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId);
+      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId, req.user.id);
       if (!allowed.includes(current.orgUnitId)) {
         return fail(res, 403, 'ACCESS_DENIED', 'Outside org scope');
       }
@@ -507,7 +507,7 @@ router.get('/catalog/:studentId', authRequired, async (req: AuthRequest, res: Re
     const studentOrg = student[0].orgUnitId;
 
     if (isCenterRole(req.user.role) && req.user.orgUnitId) {
-      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId);
+      const allowed = await getAllowedOrgUnitsForUser(req.user.role, req.user.orgUnitId, req.user.id);
       if (!allowed.includes(studentOrg)) {
         return fail(res, 403, 'ACCESS_DENIED', 'Outside org scope');
       }

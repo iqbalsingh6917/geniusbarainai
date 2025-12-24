@@ -18,6 +18,8 @@ import FranchiseLayout from './layouts/FranchiseLayout';
 import FranchiseDashboard from './pages/FranchiseDashboardReal';
 import CenterLayout from './layouts/CenterLayout';
 import CenterDashboard from './pages/CenterDashboardReal';
+import HeadCoordinatorLayout from './layouts/HeadCoordinatorLayout';
+import CoordinatorLayout from './layouts/CoordinatorLayout';
 import TeacherLayout from './layouts/TeacherLayout';
 import TeacherDashboard from './pages/TeacherDashboardReal';
 import FinanceSettings from './pages/FinanceSettings';
@@ -31,6 +33,8 @@ import FranchiseFinanceSettlements from './pages/FranchiseFinanceSettlements';
 import FranchiseFinanceSettlementDetail from './pages/FranchiseFinanceSettlementDetail';
 import CenterFinanceSettlements from './pages/CenterFinanceSettlements';
 import CenterFinanceSettlementDetail from './pages/CenterFinanceSettlementDetail';
+import HeadCoordinatorFinanceSettlements from './pages/HeadCoordinatorFinanceSettlements';
+import HeadCoordinatorFinanceSettlementDetail from './pages/HeadCoordinatorFinanceSettlementDetail';
 import CenterFinance from './pages/CenterFinance';
 import TestPage from './pages/TestPage';
 import SimpleFinanceSettings from './pages/SimpleFinanceSettings';
@@ -68,7 +72,18 @@ import SuperadminSalesConsole from './pages/SuperadminSalesConsole';
 import BpLeadsPage from './pages/BpLeadsPage';
 import FranchiseLeadsPage from './pages/FranchiseLeadsPage';
 import CenterLeadsPage from './pages/CenterLeadsPage';
+import CoordinatorLeadsPage from './pages/CoordinatorLeadsPage';
+import CoordinatorCentersPage from './pages/CoordinatorCentersPage';
+import CoordinatorTeachersPage from './pages/CoordinatorTeachersPage';
+import CoordinatorStudentsPage from './pages/CoordinatorStudentsPage';
+import CoordinatorAttendanceSummaryPage from './pages/CoordinatorAttendanceSummaryPage';
+import CoordinatorProgressSummaryPage from './pages/CoordinatorProgressSummaryPage';
+import CoordinatorFlagAttendanceIssuePage from './pages/CoordinatorFlagAttendanceIssuePage';
+import CoordinatorFlagProgressIssuePage from './pages/CoordinatorFlagProgressIssuePage';
+import CoordinatorWorkflowsPage from './pages/CoordinatorWorkflowsPage';
 import CertificateVerifyPage from './pages/CertificateVerifyPage';
+import CoordinatorDashboard from './pages/CoordinatorDashboard';
+import HeadCoordinatorDashboard from './pages/HeadCoordinatorDashboard';
 
 function App() {
   return (
@@ -93,6 +108,7 @@ function App() {
             <Route path="abacus-enrollments" element={<AbacusEnrollments />} />
             <Route path="abacus-enrollments/:id" element={<AbacusEnrollmentDetail />} />
             <Route path="finance-settings" element={<FinanceSettings />} />
+            <Route path="finance-dues" element={<FinanceDues />} />
             <Route path="finance-dues" element={<FinanceDues />} />
             <Route path="finance-transactions" element={<FinanceTransactions />} />
             <Route path="finance-settlements" element={<FinanceSettlements />} />
@@ -144,6 +160,36 @@ function App() {
             <Route path="finance/settlements/:id" element={<CenterFinanceSettlementDetail />} />
             <Route path="students/:studentId/dashboard" element={<StudentDashboardPage />} />
           </Route>
+
+          {/* Head Coordinator routes */}
+          <Route path="/head-coordinator" element={<HeadCoordinatorLayout />}>
+            <Route index element={<HeadCoordinatorDashboard />} />
+            <Route path="dashboard" element={<HeadCoordinatorDashboard />} />
+            <Route path="students" element={<AbacusStudents />} />
+            <Route path="enrollments" element={<AbacusEnrollments />} />
+            <Route path="attendance" element={<CenterAttendance />} />
+            <Route path="reports" element={<SuperadminReports />} />
+            <Route path="finance/settlements" element={<HeadCoordinatorFinanceSettlements />} />
+            <Route path="finance/settlements/:id" element={<HeadCoordinatorFinanceSettlementDetail />} />
+          </Route>
+
+          {/* Coordinator routes */}
+          <Route path="/coordinator" element={<CoordinatorLayout />}>
+            <Route index element={<CoordinatorWorkflowsPage />} />
+            <Route path="dashboard" element={<CoordinatorDashboard />} />
+            <Route path="leads" element={<CoordinatorLeadsPage />} />
+            <Route path="centers" element={<CoordinatorCentersPage />} />
+            <Route path="teachers" element={<CoordinatorTeachersPage />} />
+            <Route path="students" element={<CoordinatorStudentsPage />} />
+            <Route path="attendance" element={<CenterAttendance />} />
+            <Route path="attendance-summary" element={<CoordinatorAttendanceSummaryPage />} />
+            <Route path="progress-summary" element={<CoordinatorProgressSummaryPage />} />
+            <Route path="teacher-assignments" element={<CenterTeacherAssignments />} />
+            <Route path="flag-attendance-issue" element={<CoordinatorFlagAttendanceIssuePage />} />
+            <Route path="flag-progress-issue" element={<CoordinatorFlagProgressIssuePage />} />
+            <Route path="reports" element={<SuperadminReports />} />
+            <Route path="workflows" element={<CoordinatorWorkflowsPage />} />
+          </Route>
           
           {/* Teacher routes */}
           <Route path="/teacher" element={<TeacherLayout />}>
@@ -169,6 +215,7 @@ function App() {
           <Route path="/student" element={<StudentLayout />}>
             <Route path="dashboard" element={<StudentDashboardPage />} />
             <Route path="courses" element={<StudentCoursesPage />} />
+            <Route path="worksheets" element={<StudentWorksheetsPage />} />
             <Route path="worksheets" element={<StudentWorksheetsPage />} />
             <Route path="exams" element={<StudentExamsPage />} />
             <Route path="exams/:examId/play" element={<StudentExamPlayer />} />

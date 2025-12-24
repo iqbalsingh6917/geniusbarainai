@@ -12,9 +12,16 @@ enum UserRole {
   BUSINESS_PARTNER
   FRANCHISE
   CENTER_MANAGER
+  HEAD_COORDINATOR
+  COORDINATOR
   ADMISSIONS
   TEACHER
   STUDENT
+}
+
+enum StaffOrgRoleType {
+  HEAD_COORDINATOR
+  COORDINATOR
 }
 
 enum WorksheetGenerationMode {
@@ -85,6 +92,7 @@ model User {
   leadActivities     LeadActivity[] @relation("LeadActivityActor")
   settlementsFinalized Settlement[] @relation("SettlementFinalizedBy")
   settlementsPaid    Settlement[] @relation("SettlementPaidBy")
+  staffOrgAssignments StaffOrgUnitAssignment[]
 }
 
 model Student {
@@ -176,6 +184,23 @@ model OrgUnit {
   commissionRules    CommissionRule[]
   commissionRecords  CommissionRecord[]
   settlements        Settlement[]
+  staffOrgAssignments StaffOrgUnitAssignment[]
+}
+
+model StaffOrgUnitAssignment {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  orgUnitId Int
+  roleType  StaffOrgRoleType
+  createdAt DateTime         @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  orgUnit OrgUnit @relation(fields: [orgUnitId], references: [id])
+
+  @@index([userId])
+  @@index([orgUnitId])
+  @@index([roleType])
+  @@unique([userId, orgUnitId, roleType])
 }
 
 model AbacusCourse {

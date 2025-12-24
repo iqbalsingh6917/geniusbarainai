@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import prisma from '../prismaClient';
 import { authRequired, AuthRequest } from '../middleware/auth';
-import { isCenterManager, isAdmissions, isTeacher, isSuperadmin } from '../constants/roles';
+import { isCenterManager, isAdmissions, isTeacher, isSuperadmin, isCoordinator } from '../constants/roles';
 import { ok, fail } from '../utils/apiResponse';
 import { logAudit } from '../services/auditService';
 
@@ -23,12 +23,12 @@ const ScheduleSchema = z.object({
 });
 
 // GET /api/schedule/center
-// Roles: CENTER_MANAGER, ADMISSIONS, TEACHER, SUPERADMIN
+// Roles: CENTER_MANAGER, ADMISSIONS, TEACHER, SUPERADMIN, COORDINATOR
 router.get('/center', async (req: AuthRequest, res: Response) => {
   try {
     // Check if user has appropriate role
     if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && 
-        !isTeacher(req.user.role) && !isSuperadmin(req.user.role))) {
+        !isTeacher(req.user.role) && !isSuperadmin(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Insufficient permissions.');
     }
 
@@ -115,12 +115,12 @@ router.get('/center', async (req: AuthRequest, res: Response) => {
 });
 
 // POST /api/schedule
-// Roles: CENTER_MANAGER, ADMISSIONS
+// Roles: CENTER_MANAGER, ADMISSIONS, COORDINATOR
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     // Check if user has appropriate role
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role))) {
-      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager or Admissions role required.');
+    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && !isCoordinator(req.user.role))) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager, Admissions, or Coordinator role required.');
     }
 
     if (!req.user.orgUnitId) {
@@ -195,12 +195,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 });
 
 // PUT /api/schedule/:id
-// Roles: CENTER_MANAGER, ADMISSIONS
+// Roles: CENTER_MANAGER, ADMISSIONS, COORDINATOR
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     // Check if user has appropriate role
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role))) {
-      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager or Admissions role required.');
+    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && !isCoordinator(req.user.role))) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager, Admissions, or Coordinator role required.');
     }
 
     if (!req.user.orgUnitId) {
@@ -285,12 +285,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 });
 
 // DELETE /api/schedule/:id
-// Roles: CENTER_MANAGER, ADMISSIONS
+// Roles: CENTER_MANAGER, ADMISSIONS, COORDINATOR
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     // Check if user has appropriate role
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role))) {
-      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager or Admissions role required.');
+    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && !isCoordinator(req.user.role))) {
+      return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager, Admissions, or Coordinator role required.');
     }
 
     if (!req.user.orgUnitId) {

@@ -28,6 +28,12 @@ const StudentLayout: React.FC = () => {
         case 'ADMISSIONS':
           navigate('/center/dashboard');
           break;
+        case 'HEAD_COORDINATOR':
+          navigate('/head-coordinator/dashboard');
+          break;
+        case 'COORDINATOR':
+          navigate('/coordinator/dashboard');
+          break;
         case 'TEACHER':
           navigate('/teacher/dashboard');
           break;

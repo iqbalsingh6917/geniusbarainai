@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authRequired, AuthRequest } from '../middleware/auth';
-import { isCenterManager, isAdmissions, isTeacher } from '../constants/roles';
+import { isCenterManager, isAdmissions, isCoordinator, isTeacher } from '../constants/roles';
 import { getAllowedOrgUnitsForUser } from '../services/orgScopeEngine';
 import { ROLES } from '../constants/roles';
 import { ok, fail } from '../utils/apiResponse';
@@ -17,7 +17,7 @@ const prisma = new PrismaClient();
 router.get('/center', authRequired, async (req: AuthRequest, res: Response) => {
   try {
     // Check if user is CENTER_MANAGER or ADMISSIONS
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role))) {
+    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager or Admissions role required.');
     }
 
@@ -186,7 +186,7 @@ router.get('/me', authRequired, async (req: AuthRequest, res: Response) => {
 router.post('/', authRequired, async (req: AuthRequest, res: Response) => {
   try {
     // Check if user is CENTER_MANAGER or ADMISSIONS
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role))) {
+    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager or Admissions role required.');
     }
 
@@ -279,7 +279,7 @@ router.put('/:id', authRequired, async (req: AuthRequest, res: Response) => {
     }
 
     // Check if user is CENTER_MANAGER or ADMISSIONS
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role))) {
+    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager or Admissions role required.');
     }
 
@@ -359,7 +359,7 @@ router.delete('/:id', authRequired, async (req: AuthRequest, res: Response) => {
     }
 
     // Check if user is CENTER_MANAGER or ADMISSIONS
-    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role))) {
+    if (!req.user || (!isCenterManager(req.user.role) && !isAdmissions(req.user.role) && !isCoordinator(req.user.role))) {
       return fail(res, 403, 'ACCESS_DENIED', 'Access denied. Center Manager or Admissions role required.');
     }
 
