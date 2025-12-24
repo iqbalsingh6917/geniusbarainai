@@ -68,6 +68,13 @@ const TeacherLayout: React.FC = () => {
               </Link>
             </li>
           )}
+          {hasPermission('UPDATE_ATTENDANCE') && (
+            <li>
+              <Link to="/teacher/attendance" className="block py-2 px-4 rounded hover:bg-gray-100">
+                Attendance
+              </Link>
+            </li>
+          )}
         </ul>
       </nav>
 
