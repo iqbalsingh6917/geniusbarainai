@@ -1,96 +1,79 @@
 import React from 'react';
-import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { FRONTEND_PERMISSIONS } from '../lib/roles';
 
 const TeacherLayout: React.FC = () => {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
-  const permissions = user ? FRONTEND_PERMISSIONS[user.role as keyof typeof FRONTEND_PERMISSIONS] || FRONTEND_PERMISSIONS.TEACHER : FRONTEND_PERMISSIONS.TEACHER;
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  const { user } = useAuth();
+  
+  // Helper function to check if user has a specific permission
+  const hasPermission = (permission: string) => {
+    if (!user) return false;
+    const userRole = user.role as keyof typeof FRONTEND_PERMISSIONS;
+    const permissions = FRONTEND_PERMISSIONS[userRole] || FRONTEND_PERMISSIONS.TEACHER;
+    // Check if permissions is an array and includes the permission
+    if (Array.isArray(permissions)) {
+      return permissions.includes(permission);
+    }
+    // If it's an object with boolean flags, return the value of the permission key
+    return Boolean((permissions as any)[permission]);
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <nav className="bg-yellow-600 text-white shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold">Beats LMS - Teacher</h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span>Welcome, {user?.username}</span>
-              <button
-                onClick={handleLogout}
-                className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
+    <div className="flex h-screen">
+      <nav className="w-64 bg-white shadow-md">
+        <div className="p-4">
+          <h1 className="text-xl font-bold">Teacher Portal</h1>
         </div>
+        <ul className="mt-6">
+          {hasPermission('VIEW_DASHBOARD') && (
+            <li>
+              <Link to="/teacher/dashboard" className="block py-2 px-4 rounded hover:bg-gray-100">
+                Dashboard
+              </Link>
+            </li>
+          )}
+          {hasPermission('VIEW_STUDENTS') && (
+            <li>
+              <Link to="/teacher/my-students" className="block py-2 px-4 rounded hover:bg-gray-100">
+                My Students
+              </Link>
+            </li>
+          )}
+          {hasPermission('VIEW_WORKSHEETS') && (
+            <li>
+              <Link to="/teacher/worksheets" className="block py-2 px-4 rounded hover:bg-gray-100">
+                Worksheets
+              </Link>
+            </li>
+          )}
+          {hasPermission('VIEW_EXAMS') && (
+            <li>
+              <Link to="/teacher/exams" className="block py-2 px-4 rounded hover:bg-gray-100">
+                Exams
+              </Link>
+            </li>
+          )}
+          {hasPermission('VIEW_SUBMISSIONS') && (
+            <li>
+              <Link to="/teacher/submissions" className="block py-2 px-4 rounded hover:bg-gray-100">
+                Submissions
+              </Link>
+            </li>
+          )}
+          {hasPermission('REVIEW_ATTEMPTS') && (
+            <li>
+              <Link to="/teacher/worksheet-attempts" className="block py-2 px-4 rounded hover:bg-gray-100">
+                Review Attempts
+              </Link>
+            </li>
+          )}
+        </ul>
       </nav>
-      
-      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="flex flex-col md:flex-row">
-          <div className="md:w-64 pr-4">
-            <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="text-lg font-semibold mb-4">Navigation</h2>
-              <ul className="space-y-2">
-                <li>
-                  <Link to="/teacher/dashboard" className="block py-2 px-4 rounded hover:bg-gray-100">
-                    Dashboard
-                  </Link>
-                </li>
-                {permissions.showTeacherDashboard && (
-                  <li>
-                    <Link to="/teacher/my-students" className="block py-2 px-4 rounded hover:bg-gray-100">
-                      My Students
-                    </Link>
-                  </li>
-                )}
-                {permissions.showTeacherDashboard && (
-                  <li>
-                    <Link to="/teacher/my-enrollments" className="block py-2 px-4 rounded hover:bg-gray-100">
-                      My Enrollments
-                    </Link>
-                  </li>
-                )}
-                {permissions.showTeacherDashboard && (
-                  <li>
-                    <Link to="/teacher/curriculum" className="block py-2 px-4 rounded hover:bg-gray-100">
-                      Curriculum
-                    </Link>
-                  </li>
-                )}
-                <li>
-                  <Link to="/teacher/schedule" className="block py-2 px-4 rounded hover:bg-gray-100">
-                    Schedule
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/teacher/attendance" className="block py-2 px-4 rounded hover:bg-gray-100">
-                    Attendance
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/teacher/worksheet-attempts" className="block py-2 px-4 rounded hover:bg-gray-100">
-                    Worksheet Attempts
-                  </Link>
-                </li>
-              </ul>
-            </div>
-          </div>
-          <div className="flex-1">
-            <div className="bg-white rounded-lg shadow p-6">
-              <Outlet />
-            </div>
-          </div>
-        </div>
-      </div>
+
+      <main className="flex-1 bg-gray-50">
+        <Outlet />
+      </main>
     </div>
   );
 };

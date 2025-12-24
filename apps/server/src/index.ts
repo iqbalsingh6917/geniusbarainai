@@ -22,6 +22,7 @@ import financeRoutes from './routes/finance';
 import orgManagementRoutes from './routes/orgManagement';
 import teacherAssignmentsRoutes from './routes/teacherAssignments';
 import abacusScheduleRoutes from './routes/abacusSchedule';
+import teacherRoutes from './routes/teacher.routes';  // New teacher routes
 import attendanceRoutes from './routes/attendance';
 import superadminOrgRoutes from './routes/superadminOrg';
 import superadminUsersRoutes from './routes/superadminUsers';
@@ -169,6 +170,7 @@ export function createApp() {
   app.use('/teacher/abacus', teacherAbacusRoutes);
   app.use('/api/teacher-assignments', teacherAssignmentsRoutes);
   app.use('/api/schedule', abacusScheduleRoutes);
+  app.use('/api/teacher', teacherRoutes);  // New teacher routes
   app.use('/api/attendance', attendanceRoutes);
   app.use('/api/student-dashboard', studentDashboardRoutes);
   app.use('/api/student', studentSelfRoutes);
