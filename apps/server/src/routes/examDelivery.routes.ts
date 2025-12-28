@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma } from '@lms/db';
+import prisma from '../prismaClient';
 import { requireAuth } from '../middleware/auth';
 import { requireRole } from '../middleware/requireRole';
 import { ok, fail } from '../utils/apiResponse';
@@ -174,13 +174,15 @@ router.post(
         return fail(res, 400, 'VALIDATION_ERROR', 'User is not linked to a student');
       }
 
-      const payload = submitSchema.parse(req.body || {});
-
       const attempt = await prisma.examAttempt.findUnique({
         where: { id: attemptId },
       });
       if (!attempt || attempt.studentId !== req.user.studentId) {
         return fail(res, 404, 'NOT_FOUND', 'Attempt not found');
+      }
+
+      if (attempt.status !== ExamAttemptStatus.IN_PROGRESS) {
+        return fail(res, 400, 'INVALID_STATE', 'Exam attempt is not in progress');
       }
 
       const questions = await prisma.examQuestion.findMany({
@@ -193,7 +195,35 @@ router.post(
         return fail(res, 400, 'NO_QUESTIONS', 'Exam has no questions');
       }
 
+      // Get answers from request body or from saved answers in DB
+      const payloadAnswers = Array.isArray(req.body?.answers) ? req.body.answers : undefined;
+      let answers;
+      if (payloadAnswers && payloadAnswers.length > 0) {
+        const payload = submitSchema.parse({ answers: payloadAnswers });
+        answers = payload.answers;
+      } else {
+        // Load existing answers from DB
+        const savedAnswers = await prisma.examAnswer.findMany({
+          where: { attemptId },
+        });
+
+        if (!savedAnswers || savedAnswers.length === 0) {
+          return fail(res, 400, 'NO_ANSWERS', 'No answers provided or found for this attempt');
+        }
+        
+        answers = savedAnswers.map(a => ({
+          questionId: a.questionId,
+          numericAns: a.numericAns,
+          optionIds: a.optionIds,
+        }));
+      }
+
       const byId = new Map(questions.map((q) => [q.id, q]));
+      const invalidAnswers = answers.filter((ans) => !byId.has(ans.questionId));
+
+      if (invalidAnswers.length > 0) {
+        return fail(res, 400, 'INVALID_QUESTION_IDS', 'Some question IDs are not valid for this exam');
+      }
 
       const epsilon = 1e-6;
       let score = 0;
@@ -202,7 +232,7 @@ router.post(
       // Replace existing answers then insert submitted
       await prisma.examAnswer.deleteMany({ where: { attemptId } });
 
-      for (const ans of payload.answers) {
+      for (const ans of answers) {
         const question = byId.get(ans.questionId);
         if (!question) continue;
 
@@ -268,6 +298,139 @@ router.post(
     } catch (err: any) {
       if (err.name === 'ZodError') {
         return fail(res, 400, 'VALIDATION_ERROR', 'Invalid answers payload', err.errors);
+      }
+      next(err);
+    }
+  }
+);
+
+// POST /student/exams/attempts/:attemptId/questions
+// This endpoint saves answers to individual questions without submitting the exam
+router.post(
+  '/student/exams/attempts/:attemptId/questions',
+  requireAuth,
+  requireRole(['STUDENT']),
+  async (req, res, next) => {
+    try {
+      const attemptId = Number(req.params.attemptId);
+      if (!attemptId) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'Invalid attempt ID');
+      }
+      if (!req.user?.studentId) {
+        return fail(res, 400, 'VALIDATION_ERROR', 'User is not linked to a student');
+      }
+
+      // Validate the request body using submitSchema
+      const payload = submitSchema.parse(req.body);
+
+      const attempt = await prisma.examAttempt.findUnique({
+        where: { id: attemptId },
+      });
+      if (!attempt || attempt.studentId !== req.user.studentId) {
+        return fail(res, 404, 'NOT_FOUND', 'Attempt not found');
+      }
+
+      if (attempt.status !== ExamAttemptStatus.IN_PROGRESS) {
+        return fail(res, 400, 'INVALID_STATE', 'Exam attempt is not in progress');
+      }
+
+      const questions = await prisma.examQuestion.findMany({
+        where: { examId: attempt.examId },
+        select: { id: true, type: true },
+      });
+
+      if (!questions.length) {
+        return fail(res, 400, 'NO_QUESTIONS', 'Exam has no questions');
+      }
+
+      const validQuestionIds = new Set(questions.map(q => q.id));
+      const questionMap = new Map(questions.map(q => [q.id, q]));
+      
+      // Debug logging
+      if (process.env.NODE_ENV === 'test') {
+        console.log('Valid question IDs:', Array.from(validQuestionIds));
+        console.log('Request answers:', payload.answers);
+      }
+      
+      const invalidAnswers = payload.answers.filter(ans => !validQuestionIds.has(ans.questionId));
+
+      if (invalidAnswers.length > 0) {
+        if (process.env.NODE_ENV === 'test') {
+          console.log('Invalid answers:', invalidAnswers);
+        }
+        return fail(res, 400, 'INVALID_QUESTION_IDS', 'Some question IDs are not valid for this exam');
+      }
+
+      // Check that all question IDs in the request exist in the exam
+      for (const ans of payload.answers) {
+        if (!validQuestionIds.has(ans.questionId)) {
+          return fail(res, 400, 'INVALID_QUESTION_ID', `Question ID ${ans.questionId} not valid for this exam`);
+        }
+      }
+
+      // Process answers: validate format based on question type and save to DB
+      const questionIds = payload.answers.map((ans) => ans.questionId);
+      await prisma.examAnswer.deleteMany({
+        where: {
+          attemptId,
+          questionId: {
+            in: questionIds,
+          },
+        },
+      });
+
+      for (const ans of payload.answers) {
+        const question = questionMap.get(ans.questionId);
+        
+        // Validate answer format based on question type
+        if (question?.type === 'NUMERIC') {
+          // Numeric questions: must have numericAns, must not have optionIds
+          if (ans.numericAns === undefined) {
+            return fail(res, 400, 'INVALID_ANSWER_FORMAT', 'Numeric questions must have numericAns');
+          }
+          if (ans.optionIds !== undefined) {
+            return fail(res, 400, 'INVALID_ANSWER_FORMAT', 'Numeric questions must not have optionIds');
+          }
+        } else if (question?.type === 'MCQ') {
+          // MCQ questions: must have optionIds (non-empty), must not have numericAns
+          if (!ans.optionIds || ans.optionIds.length === 0) {
+            return fail(res, 400, 'INVALID_ANSWER_FORMAT', 'MCQ questions must have non-empty optionIds');
+          }
+          if (ans.numericAns !== undefined) {
+            return fail(res, 400, 'INVALID_ANSWER_FORMAT', 'MCQ questions must not have numericAns');
+          }
+        }
+
+        // Delete any existing answer for this question (using a more efficient upsert operation)
+        //await prisma.examAnswer.deleteMany({
+        //  where: { attemptId, questionId: ans.questionId },
+        //});
+
+        // Create new answer (simplified to single upsert operation)
+        await prisma.examAnswer.upsert({
+          where: {
+            attemptId_questionId: {
+              attemptId,
+              questionId: ans.questionId,
+            },
+          },
+          create: {
+            attemptId,
+            questionId: ans.questionId,
+            numericAns: ans.numericAns ?? null,
+            optionIds: ans.optionIds ?? [],
+          },
+          update: {
+            numericAns: ans.numericAns ?? null,
+            optionIds: ans.optionIds ?? [],
+          },
+        });
+      }
+
+      ok(res, { attemptId, answeredCount: payload.answers.length });
+    } catch (err: any) {
+      if (err.name === 'ZodError') {
+        return fail(res, 400, 'ZOD_VALIDATION_ERROR', 'Invalid answers payload', err.errors);
       }
       next(err);
     }
