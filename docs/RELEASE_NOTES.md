@@ -17,6 +17,10 @@ Tag the current commit as `v1.0.0-rc1` once CI (`pnpm ci:verify`) is green and p
 
 > Note: `v1.0.0` can point to the same commit after successful production validation.
 
+## Patch 2025-12-28 – Exam draft resilience
+
+- **Exam drafts + submit from saved answers** — `POST /student/exams/attempts/:attemptId/questions` now saves drafts for the valid exam questions (deleting only the touched ones before upserting), and `POST /student/exams/attempts/:attemptId/submit` can omit answers to re-use the saved drafts while still enforcing `IN_PROGRESS` status and validating each `questionId` belongs to the attempt’s exam before scoring.
+
 ## Phase 16 – Demo Packaging + Hardening (Signed Off)
 
 - demo reset script: `pnpm demo:reset` with `DEMO_SEED=true` + login cheat sheet
