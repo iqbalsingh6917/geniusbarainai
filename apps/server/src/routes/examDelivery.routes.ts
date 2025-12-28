@@ -195,6 +195,7 @@ router.post(
         return fail(res, 400, 'NO_QUESTIONS', 'Exam has no questions');
       }
 
+      // Submit may reuse saved drafts when payload is empty; behavior covered by assessments tests.
       // Get answers from request body or from saved answers in DB
       const payloadAnswers = Array.isArray(req.body?.answers) ? req.body.answers : undefined;
       let answers;
